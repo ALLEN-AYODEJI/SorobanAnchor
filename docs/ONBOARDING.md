@@ -136,6 +136,9 @@ Live checks use real network calls and secrets, so run them only when your
 change touches on-chain behavior and you have credentials. Keep secrets out of
 shell history.
 
+To review a regression snapshot change, see
+[`docs/snapshot-testing.md`](snapshot-testing.md).
+
 ## 4  Key concepts
 
 ### Build modes
