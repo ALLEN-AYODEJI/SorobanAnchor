@@ -15,6 +15,16 @@ A Soroban smart contract SDK for Stellar anchors. Handles attestation management
 - Enforces rate limits and configurable retry/backoff strategies
 - Validates anchor domain endpoints and response schemas
 
+## Choose your path
+
+Jump straight to the guide that matches what you are here to do:
+
+- **Set up a development environment:** [Onboarding guide](docs/ONBOARDING.md), then [build matrix](docs/build-matrix.md) for native and WASM build details.
+- **Use the contract API:** [Contract functions](docs/CONTRACT_FUNCTIONS.md) and [stable error codes](docs/error-codes.md), with runnable scripts in [`examples/`](examples/).
+- **Operate an anchor:** [Runbook](docs/RUNBOOK.md) and the [end-to-end deployment walkthrough](examples/full_deployment_walkthrough.sh).
+- **Contribute code or docs:** [Contributing guide](docs/CONTRIBUTING.md), [testing guide](TESTING_GUIDE.md), and [issue triage](docs/TRIAGE.md).
+- **Propose a design decision:** [Architecture decision records](docs/adr/README.md) and the [architecture overview](docs/ARCHITECTURE.md).
+
 ## Project structure
 
 ```
