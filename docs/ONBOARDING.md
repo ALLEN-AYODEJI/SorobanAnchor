@@ -116,6 +116,26 @@ read-only unless marked otherwise. For the full build options, see
 If a check fails on a clean checkout with the toolchain above in place, treat
 it as a real source failure and open an issue with the command and full output.
 
+### Test layers
+
+The repository has several test layers. Pick the cheapest one that covers your
+change.
+
+| Layer | Purpose | Prerequisites | Command | Cost |
+|-------|---------|---------------|---------|------|
+| Fast local check | One focused mock-only test | Rust toolchain | `cargo test --features mock-only test_sep6_deposit_minimal_fields` | Seconds to build and run |
+| Complete local suite | All unit and integration tests, with mock fixtures | Rust toolchain | `cargo test --features std,mock-only` | Full compile; no network |
+| Integration harness | Deploy → register → attest → verify in the local Soroban simulation | Rust toolchain | `make integration-test` | Local only; no network |
+| Extended pipeline | Admin transfer, capabilities, batching, routing fallback, and related flows | Rust toolchain | `make integration-test-pipeline` | Local only; no network |
+| Property-based tests | Randomized inputs for parsers and validators (`proptest`, in `tests/property_based_parsing_tests.rs`) | Rust toolchain with `std` (default) | Included in `cargo test` | Local only; no network |
+| Live testnet checks | Confirm a deployed contract on testnet is reachable and correct | Network access, `SOROBAN_ANCHOR_INTEGRATION=testnet`, `ANCHOR_CONTRACT_ID`, `ANCHOR_ADMIN_SECRET` | `make integration-test-live` or `make smoke-test-live` | Opt-in; depends on the network; never run in normal CI |
+| Stress tests | High-concurrency and burst-load scenarios (`tests/load_simulation_tests.rs`) | Rust toolchain | `make stress-test` | Slow; excluded from normal CI |
+| Fuzz targets | Malformed-input robustness for parsers (see [`fuzz/README.md`](../fuzz/README.md)) | `cargo install cargo-fuzz` | `cd fuzz && cargo fuzz run fuzz_target_json_response_parsing -- -max_len=1024 -runs=100` | Smoke run is quick; without `-runs` it runs until interrupted |
+
+Live checks use real network calls and secrets, so run them only when your
+change touches on-chain behavior and you have credentials. Keep secrets out of
+shell history.
+
 ## 4  Key concepts
 
 ### Build modes
