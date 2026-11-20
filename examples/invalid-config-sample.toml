@@ -1,3 +1,6 @@
+# INTENTIONALLY INVALID — negative example for the strict config validator.
+# Do NOT use this file as a deployment config. See
+# examples/INVALID_CONFIG_SAMPLE.md for the expected failure.
 [contract]
 name = "invalid-config-sample"
 version = "1.0.0"
