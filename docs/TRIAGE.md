@@ -90,6 +90,25 @@ Maintainers run a short (≤ 30 min) triage meeting or async thread to:
 
 ---
 
+## Label glossary for reporters
+
+You do not need to apply labels yourself. Maintainers assign them during triage (see the [step-by-step process](#step-by-step-triage-process) above). If you are filing an issue, you can suggest a type and priority in the issue text, and a maintainer will confirm or change them.
+
+**Type labels** (pick the closest one):
+
+- `bug`: the code behaves incorrectly, regressed, or has a security flaw.
+- `enhancement`: a new feature or an improvement to existing behavior.
+- `docs`: a documentation gap or error.
+- `chore`: dependency updates, CI changes, or tooling.
+- `question`: the report needs clarification before it can be acted on.
+
+**Priority labels** (exactly one per issue; the rubric in step 3 decides):
+
+- `P0 — critical`: production broken, data loss, or a security vulnerability.
+- `P1 — high`: a major feature is broken or a release is blocked.
+- `P2 — medium`: an important improvement that is not blocking.
+- `P3 — low`: a nice-to-have or long-tail cleanup, such as a typo in the docs.
+
 ## Contributor guide
 
 - **Reporting a bug:** Use the bug report template and include reproduction steps, expected vs. actual behavior, and environment details.
