@@ -299,6 +299,35 @@ A reload that fails to parse or fails shape validation is rejected and the
 previously loaded configuration stays active. See
 [`examples/config_hot_reload_example.rs`](examples/config_hot_reload_example.rs).
 
+#### Reload outcomes
+
+`reload_if_changed()` (which checks the file's modification time first) and
+`reload()` (which always re-reads the file) report three distinct outcomes:
+
+| Outcome | Returned value | Meaning |
+|---------|----------------|---------|
+| Changed | `Ok(true)` from `reload_if_changed()`, or `Ok(())` from `reload()` | The file was read, parsed and validated, and the new configuration is now active. `current()` returns it from this point on. |
+| Unchanged | `Ok(false)` from `reload_if_changed()` | The file's modification time is not newer than the last successful load. No file contents were read and the active configuration is untouched. `reload()` has no separate unchanged result: it re-reads the file and returns `Ok(())` if the file is valid, even when its contents match the active configuration. |
+| Rejected | `Err(message)` | The file could not be read, is malformed, or fails shape validation. The error message describes the cause. The active configuration is left as it was. |
+
+The guarantee that the last valid configuration remains active applies to
+rejected reloads: the new configuration is only swapped in after it has been
+fully loaded and validated, so a rejected reload never replaces it with a
+partial or invalid one. A rejected reload also does not update the stored
+modification time, so `reload_if_changed()` will attempt the same file again
+on its next call until the file is fixed or replaced.
+
+Recommended handling:
+
+- `Ok(true)`: log at info level and, if needed, notify components that cache configuration.
+- `Ok(false)`: no action.
+- `Err(e)`: log or alert at warning level with the message, then keep serving from `current()`.
+
+The example in `examples/config_hot_reload_example.rs` follows the same
+pattern. Its one-off `reload()` call prints "no changes detected on disk" on
+success, which is only a fair description if you know the file was not edited;
+`reload()` itself does not compare contents.
+
 ## Integration Testing
 
 The repository ships a CLI integration test harness that exercises the full

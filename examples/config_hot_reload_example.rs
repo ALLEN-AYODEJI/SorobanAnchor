@@ -38,7 +38,7 @@ fn main() {
     // A single explicit reload — e.g. triggered by an admin API call or a
     // file-watcher — looks like this:
     match manager.reload() {
-        Ok(()) => println!("Explicit reload succeeded (no changes detected on disk)."),
+        Ok(()) => println!("Explicit reload succeeded (file parsed and validated; it may be unchanged)."),
         Err(e) => println!("Reload rejected — previous config kept active: {e}"),
     }
 
