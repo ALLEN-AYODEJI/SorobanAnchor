@@ -10,6 +10,27 @@ AnchorKit enforces consistent code formatting and quality through automated tool
 - **clippy** — Linting and best practices (configured in `.clippy.toml`)
 - **cargo test** — Unit and integration tests
 
+## Before Opening a PR
+
+Copy this block to run the minimum local checks. Every command exists in this
+repository. Commands marked *optional* are not required for a PR.
+
+```bash
+make fmt-check                          # rustfmt check, no files changed
+make lint                               # cargo clippy -- -D warnings
+make test                               # cargo test (default features)
+cargo check --no-default-features       # no_std compile check for the core library
+make wasm                               # WASM build (wasm32-unknown-unknown, --features wasm)
+make doc-lint                           # documentation link and command checks (may install markdownlint-cli via npm)
+
+# Optional: feature-gated mock fixtures (see docs/build-matrix.md)
+cargo test --features mock-only
+
+# Optional: live testnet tests. These need network access and
+# ANCHOR_CONTRACT_ID and ANCHOR_ADMIN_SECRET; they are not required for a PR.
+make smoke-test-live
+```
+
 ## Pre-Commit Validation
 
 Before committing or pushing code, run the complete validation suite:
