@@ -93,6 +93,52 @@ Never commit keys. The `.gitignore` already excludes `*.secret`, `*.key`,
 
 ---
 
+### First-build troubleshooting
+
+Use this table when the first build or test run fails. Each check is
+read-only unless marked otherwise. For the full build options, see
+[`docs/build-matrix.md`](build-matrix.md).
+
+| Symptom | Check | Expected signal | Fix / reference |
+|---------|-------|-----------------|-----------------|
+| `cargo: command not found` | `cargo --version` | Prints a Cargo version | Install Rust with rustup (see [Prerequisites](#2--prerequisites)) |
+| Rust is older than the minimum | `rustc --version` | Version below 1.75 | `rustup update stable` |
+| WASM build fails with `can't find crate for \`core\`` | `rustup target list --installed` | `wasm32-unknown-unknown` is missing from the list | `rustup target add wasm32-unknown-unknown` |
+| `cargo fmt` is missing | `rustup component list --installed` | `rustfmt` is missing from the list | `rustup component add rustfmt` |
+| `no such command: \`clippy\`` | `rustup component list --installed` | `clippy` is missing from the list | `rustup component add clippy` |
+| Formatting check fails | `cargo fmt --all -- --check` | Exits non-zero and prints a diff | Review the diff, then run `make fmt` (rewrites source files) |
+| WASM build fails with `cannot find crate for \`clap\`` or `unresolved import \`std::fs\`` | `cargo build --release --target wasm32-unknown-unknown --no-default-features --features wasm` | Build succeeds with the WASM feature set | Drop the default `std` feature; see "Common Build Issues" in [`docs/build-matrix.md`](build-matrix.md) |
+| Native build finishes but `target/release/anchorkit` is missing | `cargo build --release` | `Finished` line, and the binary exists under `target/release/` | Native builds need default features; see [`docs/build-matrix.md`](build-matrix.md) |
+| Focused mock test runs 0 tests | `cargo test --features mock-only test_sep6_deposit_minimal_fields` | `test result: ok. 1 passed` | Keep `--features mock-only`; the test is not compiled without it |
+| Full local suite fails on a clean checkout | `cargo test` | All tests pass | Run `git status` first; if the tree is clean and the failure persists, open an issue |
+| Live integration target fails immediately | `make integration-test` (local, no network) | Passes | `make integration-test-live` needs `ANCHOR_CONTRACT_ID` and `ANCHOR_ADMIN_SECRET`; see the README's "Live testnet tests" |
+
+If a check fails on a clean checkout with the toolchain above in place, treat
+it as a real source failure and open an issue with the command and full output.
+
+### Test layers
+
+The repository has several test layers. Pick the cheapest one that covers your
+change.
+
+| Layer | Purpose | Prerequisites | Command | Cost |
+|-------|---------|---------------|---------|------|
+| Fast local check | One focused mock-only test | Rust toolchain | `cargo test --features mock-only test_sep6_deposit_minimal_fields` | Seconds to build and run |
+| Complete local suite | All unit and integration tests, with mock fixtures | Rust toolchain | `cargo test --features std,mock-only` | Full compile; no network |
+| Integration harness | Deploy → register → attest → verify in the local Soroban simulation | Rust toolchain | `make integration-test` | Local only; no network |
+| Extended pipeline | Admin transfer, capabilities, batching, routing fallback, and related flows | Rust toolchain | `make integration-test-pipeline` | Local only; no network |
+| Property-based tests | Randomized inputs for parsers and validators (`proptest`, in `tests/property_based_parsing_tests.rs`) | Rust toolchain with `std` (default) | Included in `cargo test` | Local only; no network |
+| Live testnet checks | Confirm a deployed contract on testnet is reachable and correct | Network access, `SOROBAN_ANCHOR_INTEGRATION=testnet`, `ANCHOR_CONTRACT_ID`, `ANCHOR_ADMIN_SECRET` | `make integration-test-live` or `make smoke-test-live` | Opt-in; depends on the network; never run in normal CI |
+| Stress tests | High-concurrency and burst-load scenarios (`tests/load_simulation_tests.rs`) | Rust toolchain | `make stress-test` | Slow; excluded from normal CI |
+| Fuzz targets | Malformed-input robustness for parsers (see [`fuzz/README.md`](../fuzz/README.md)) | `cargo install cargo-fuzz` | `cd fuzz && cargo fuzz run fuzz_target_json_response_parsing -- -max_len=1024 -runs=100` | Smoke run is quick; without `-runs` it runs until interrupted |
+
+Live checks use real network calls and secrets, so run them only when your
+change touches on-chain behavior and you have credentials. Keep secrets out of
+shell history.
+
+To review a regression snapshot change, see
+[`docs/snapshot-testing.md`](snapshot-testing.md).
+
 ## 4  Key concepts
 
 ### Build modes

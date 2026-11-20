@@ -20,6 +20,34 @@ The project is built in two modes with intentionally different feature sets:
 
 For the current supported matrix and commands, see [README.md](../README.md) and [docs/build-matrix.md](build-matrix.md). The design rationale is captured in [docs/adr/ADR-0002-dual-build-strategy.md](adr/ADR-0002-dual-build-strategy.md).
 
+### Responsibility matrix
+
+This matrix shows how representative modules fall into three groups. It is a
+guide, not a complete module inventory. The authoritative gates are the
+`#[cfg(...)]` attributes in [`src/lib.rs`](../src/lib.rs) and the feature
+definitions in [`Cargo.toml`](../Cargo.toml).
+
+| Group | Compiled when | Representative modules | Gate in `src/lib.rs` |
+|-------|---------------|------------------------|----------------------|
+| Native-only (host) | `wasm` feature is off | `http_client`, `webhook`, `sep6`, `sep24`, `stellar_toml`, `metrics` | `#[cfg(not(feature = "wasm"))]` |
+| Std-only (host) | `std` feature is on (default) | `config`, `env_fingerprint` | `#[cfg(feature = "std")]` |
+| Shared (both builds) | Always | `contract`, `errors`, `deterministic_hash`, `domain_validator`, `rate_limiter`, `migration` | No gate |
+
+How to read the matrix:
+
+- **Native-only** and **std-only** modules are removed from the WASM build.
+  They handle network calls, filesystem access, and local configuration. They
+  never become part of the Soroban contract binary.
+- **Shared** modules compile in both builds. Being shared does not mean every
+  function in the module runs on-chain. Check the module's own documentation
+  for which entry points the contract calls.
+- The contract entry point lives in `src/contract.rs`. It is compiled in both
+  modes.
+
+For the rationale behind this split, see
+[ADR-0002](adr/ADR-0002-dual-build-strategy.md). For the exact build commands
+and feature combinations, see [`docs/build-matrix.md`](build-matrix.md).
+
 ## Typical data flow
 
 1. A runtime component reads configuration or a remote response payload.
