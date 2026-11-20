@@ -158,6 +158,55 @@ canonical document for details.
 
 ## 5  Day-to-day workflows
 
+### Network profile precedence
+
+Custom network profiles are stored in `~/.anchorkit/networks.json`. Each
+profile has a `name`, an `rpc_url`, a `network_passphrase`, an optional
+`horizon_url`, and an `is_default` flag. Profiles hold endpoint metadata only.
+They never store signing keys. Signing credentials are supplied separately, as
+described in the signing key section below.
+
+Which network a command uses depends on whether the subcommand has its own
+`--network` option.
+
+**Commands without their own `--network` option** (for example `doctor`) use
+this order, highest first:
+
+1. The global `--network <name>` flag.
+2. The `STELLAR_NETWORK` environment variable.
+3. The profile with `is_default: true`, set with `anchorkit network set-default --name <NAME>`.
+4. `testnet`.
+
+**Commands with their own `--network` option** (`deploy`, `register`,
+`attest`, `quote`, `revoke`, `health`, `verify`) use only that option's value.
+The option defaults to `testnet`. These commands do not read `STELLAR_NETWORK`
+or the default profile. Pass `--network` explicitly on these commands so the
+target is never set by an inherited environment variable.
+
+Once a name is chosen, its endpoints are resolved as follows:
+
+- A custom profile with that name supplies `rpc_url` and `network_passphrase`.
+- Otherwise a built-in name (`testnet`, `mainnet`, `futurenet`) uses the built-in endpoints.
+- Otherwise the name is unknown. Commands that read the global network fall back to the testnet endpoint with a warning. Commands with their own `--network` option reject unknown names before doing any work.
+
+Example, using placeholder values only:
+
+```bash
+# Register a custom profile (placeholder URL and passphrase)
+anchorkit network add --name my-net \
+  --rpc-url https://rpc.example.invalid \
+  --passphrase "Example Passphrase"
+
+# Make it the default for commands that use the global network
+anchorkit network set-default --name my-net
+
+export STELLAR_NETWORK=my-net
+anchorkit doctor                     # uses my-net
+
+# Pass --network explicitly for deploy-style commands
+anchorkit deploy --network my-net
+```
+
 ### CLI flag and environment variable precedence
 
 Several CLI flags read from environment variables when the flag is omitted.
@@ -188,6 +237,38 @@ anchorkit deploy --network mainnet   # deploys to mainnet despite the env var
 Never put real keys in shell history. Prefer `ANCHOR_ADMIN_SECRET` for
 automated flows, or `--keypair-file` pointing to a file excluded from version
 control.
+
+### Handling CLI secrets safely
+
+Shell history and process listings can expose a secret that is typed on the
+command line. Anything typed as an argument can be saved in `~/.bash_history`
+or a similar file, and it can be visible to other users through `ps` while the
+command runs. Log files and terminal recordings can capture the same values.
+
+Unsafe: the secret is an argument, so it lands in shell history and the
+process list.
+
+```bash
+# UNSAFE — placeholder value shown; never type a real key as an argument
+anchorkit credentials add --name anchor-admin --value "S-PLACEHOLDER-NOT-A-REAL-KEY"
+```
+
+Safer: omit `--value`. The command then prompts for the secret, and for the
+keystore password and its confirmation, using hidden terminal input.
+
+```bash
+# SAFE — the secret and passwords are entered at hidden prompts
+anchorkit credentials add --name anchor-admin
+```
+
+Other points:
+
+- The keystore is stored at `~/.anchorkit/credentials.json`, and each entry is encrypted with the keystore password. `credentials add`, `credentials get` and `credentials rotate` need an interactive terminal. They fail when `--no-interactive` or `ANCHORKIT_NO_INTERACTIVE` is set.
+- `credentials get --name <NAME>` prints the decrypted secret to standard output. Do not run it where output is logged, recorded or piped to a file, and do not paste its output into tickets or chat.
+- For automated flows, load `ANCHOR_ADMIN_SECRET` from a secrets manager or a protected file rather than typing it, for example `export ANCHOR_ADMIN_SECRET="$(cat /path/to/protected/file)"`. The value still appears in the environment of the process, so restrict who can read that file.
+- Keep any key file used with `--keypair-file` out of version control, and encrypt it at rest.
+- Proxy credentials are configured separately. See [`proxy-and-credentials.md`](proxy-and-credentials.md) for how they are set and handled.
+- For encrypting files that hold secrets at rest, see [`secret-file-encryption.md`](secret-file-encryption.md).
 
 ### Making a change
 

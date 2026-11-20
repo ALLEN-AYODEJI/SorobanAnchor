@@ -265,6 +265,25 @@ Anchor configs live in `configs/` as JSON or TOML. Validate them with:
 
 Schema reference: `config_schema.json`
 
+### Supported file formats
+
+Two formats are supported. Both are validated against the same schema, so a
+JSON file and an equivalent TOML file are accepted or rejected identically.
+
+| Extension | Format |
+|-----------|--------|
+| `.json`   | JSON   |
+| `.toml`   | TOML   |
+
+How the format is chosen:
+
+- The format is determined only by the file extension. The file's contents are not inspected to guess the format.
+- Matching is case-sensitive and must be lowercase. `anchor.JSON` or `anchor.Toml` is rejected.
+- In library code, `load_runtime_config_file(path)` and `RuntimeConfigManager::new(path)` select the parser from the extension. `parse_runtime_config_str(input, format)` takes the format explicitly and ignores any file name.
+- A path with an unsupported extension, or with no extension, fails without reading the file as a config. The library error reads `unsupported config file extension '.<ext>' (supported formats: .json, .toml)`, or `config path has no file extension (supported formats: .json, .toml)` when there is no extension.
+- `anchorkit offline validate --config <path>` reports an unsupported extension as `✗ <path>: unsupported extension: <ext>` and exits with a failure status.
+- When `anchorkit offline validate` runs without `--config`, or the directory-wide check scans `configs/`, only `.json` and `.toml` files are considered. Other files in that directory are skipped without an error.
+
 ### Strict unknown-field rejection
 
 The schema sets `additionalProperties: false` on every object section. Any key
@@ -315,6 +334,35 @@ let current = manager.current();
 A reload that fails to parse or fails shape validation is rejected and the
 previously loaded configuration stays active. See
 [`examples/config_hot_reload_example.rs`](examples/config_hot_reload_example.rs).
+
+#### Reload outcomes
+
+`reload_if_changed()` (which checks the file's modification time first) and
+`reload()` (which always re-reads the file) report three distinct outcomes:
+
+| Outcome | Returned value | Meaning |
+|---------|----------------|---------|
+| Changed | `Ok(true)` from `reload_if_changed()`, or `Ok(())` from `reload()` | The file was read, parsed and validated, and the new configuration is now active. `current()` returns it from this point on. |
+| Unchanged | `Ok(false)` from `reload_if_changed()` | The file's modification time is not newer than the last successful load. No file contents were read and the active configuration is untouched. `reload()` has no separate unchanged result: it re-reads the file and returns `Ok(())` if the file is valid, even when its contents match the active configuration. |
+| Rejected | `Err(message)` | The file could not be read, is malformed, or fails shape validation. The error message describes the cause. The active configuration is left as it was. |
+
+The guarantee that the last valid configuration remains active applies to
+rejected reloads: the new configuration is only swapped in after it has been
+fully loaded and validated, so a rejected reload never replaces it with a
+partial or invalid one. A rejected reload also does not update the stored
+modification time, so `reload_if_changed()` will attempt the same file again
+on its next call until the file is fixed or replaced.
+
+Recommended handling:
+
+- `Ok(true)`: log at info level and, if needed, notify components that cache configuration.
+- `Ok(false)`: no action.
+- `Err(e)`: log or alert at warning level with the message, then keep serving from `current()`.
+
+The example in `examples/config_hot_reload_example.rs` follows the same
+pattern. Its one-off `reload()` call prints "no changes detected on disk" on
+success, which is only a fair description if you know the file was not edited;
+`reload()` itself does not compare contents.
 
 ## Integration Testing
 
