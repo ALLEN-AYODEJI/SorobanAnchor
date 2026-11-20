@@ -171,6 +171,23 @@ anchorkit verify --id 42
 anchorkit health --contract-id $ANCHOR_CONTRACT_ID --attestor GANCHOR123...
 ```
 
+### Offline mode: what it checks
+
+`anchorkit offline validate` and `anchorkit offline simulate` run without network access and without credentials. They check local files only.
+
+| Operation | Offline? | What it means |
+|---|---|---|
+| Parse and schema-validate config files (`offline validate`) | Yes | Reads files in `configs/` (or the file given with `--config`) |
+| Print the steps of a `deploy`, `register`, or `attest` workflow (`offline simulate`) | Yes | Prints fixed step messages. It does not build WASM, call an RPC endpoint, or invoke a contract |
+| WASM artifact check and network connectivity check (in `offline simulate deploy`) | No | Shown as skipped. These need a build and RPC access |
+| Live anchor responses, contract state, and transaction acceptance | No | Need a testnet (or mainnet) run, such as `anchorkit doctor --network testnet` with a contract ID set |
+
+Note the following when reading offline results:
+
+- A `✓ ... simulation completed successfully` line means the local steps finished. It does not mean an anchor, network, or deployed contract would accept the same operations.
+- If `configs/` is missing, `offline validate` prints a warning and exits `0`. If it contains no config files, it prints `(no config files found)` and also exits `0`. Pass `--config <path>` to make sure the intended file is checked.
+- The commands are demonstrated in [`examples/offline_mode_example.sh`](examples/offline_mode_example.sh).
+
 **Walkthroughs and troubleshooting:** see [`examples/full_deployment_walkthrough.sh`](examples/full_deployment_walkthrough.sh)
 for an end-to-end operator tour (doctor → validate → deploy → register →
 attest → verify → health) with a troubleshooting section for common errors.
@@ -184,7 +201,7 @@ Other scenario walkthroughs live in [`examples/`](examples/):
 | `config_hot_reload_example.rs` | Reloading runtime config without restarting the process |
 | `credential_management.sh` | Encrypted keystore vs. env var vs. keypair file |
 | `mock_mode_example.sh` | Testing CLI flows without a live anchor |
-| `offline_mode_example.sh` | Config validation and workflow simulation with no network |
+| [`offline_mode_example.sh`](examples/offline_mode_example.sh) | Config validation and workflow simulation with no network |
 | `anchor_info_discovery.sh` | Fetching and interpreting a `stellar.toml` |
 | `kyc_workflow.sh` | KYC-gated attestation flow |
 | `role_usage_example.sh` | Admin roles and capability delegation |
