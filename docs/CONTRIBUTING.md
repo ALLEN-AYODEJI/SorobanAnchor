@@ -216,6 +216,21 @@ the existing ADRs and consider whether a new ADR is needed.
 - [ADR-0002](adr/ADR-0002-dual-build-strategy.md): Dual-Build Strategy
 - [ADR-0003](adr/ADR-0003-contract-lifecycle-and-schema-versioning.md): Contract Lifecycle and Schema Versioning
 
+## Documentation Ownership Map
+
+When a change affects behavior, check the pages below before opening a PR. Each
+page is the owner of its topic. Link to it rather than repeating its steps.
+
+| If your change touches... | Review these pages |
+|---------------------------|--------------------|
+| Protocol behavior or contract functions | [CONTRACT_FUNCTIONS.md](CONTRACT_FUNCTIONS.md), [error-codes.md](error-codes.md) |
+| Configuration and config validation | [RUNBOOK.md](RUNBOOK.md) (Configuration Validation), [attestor-roles.md](attestor-roles.md), [`configs/`](../configs/) |
+| Contract upgrades and schema changes | [upgrade-playbook.md](upgrade-playbook.md), [migration-guide.md](migration-guide.md) |
+| Release process | [release-checklist.md](release-checklist.md), [release-signing.md](release-signing.md), [changelog-generation.md](changelog-generation.md) |
+| Security-sensitive code (auth, crypto, HTTP, deployment) | [SECURITY_REVIEW_CHECKLIST.md](SECURITY_REVIEW_CHECKLIST.md), [governance-and-security.md](governance-and-security.md) |
+| Service operation | [service-management.md](service-management.md), [RUNBOOK.md](RUNBOOK.md) |
+| Build targets and feature flags | [build-matrix.md](build-matrix.md), [BUILD_TARGETS.md](BUILD_TARGETS.md) |
+
 ## Git Workflow
 
 1. **Create a feature branch:**
