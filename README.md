@@ -248,6 +248,25 @@ Anchor configs live in `configs/` as JSON or TOML. Validate them with:
 
 Schema reference: `config_schema.json`
 
+### Supported file formats
+
+Two formats are supported. Both are validated against the same schema, so a
+JSON file and an equivalent TOML file are accepted or rejected identically.
+
+| Extension | Format |
+|-----------|--------|
+| `.json`   | JSON   |
+| `.toml`   | TOML   |
+
+How the format is chosen:
+
+- The format is determined only by the file extension. The file's contents are not inspected to guess the format.
+- Matching is case-sensitive and must be lowercase. `anchor.JSON` or `anchor.Toml` is rejected.
+- In library code, `load_runtime_config_file(path)` and `RuntimeConfigManager::new(path)` select the parser from the extension. `parse_runtime_config_str(input, format)` takes the format explicitly and ignores any file name.
+- A path with an unsupported extension, or with no extension, fails without reading the file as a config. The library error reads `unsupported config file extension '.<ext>' (supported formats: .json, .toml)`, or `config path has no file extension (supported formats: .json, .toml)` when there is no extension.
+- `anchorkit offline validate --config <path>` reports an unsupported extension as `✗ <path>: unsupported extension: <ext>` and exits with a failure status.
+- When `anchorkit offline validate` runs without `--config`, or the directory-wide check scans `configs/`, only `.json` and `.toml` files are considered. Other files in that directory are skipped without an error.
+
 ### Strict unknown-field rejection
 
 The schema sets `additionalProperties: false` on every object section. Any key
