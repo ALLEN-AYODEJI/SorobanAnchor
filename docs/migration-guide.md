@@ -374,3 +374,37 @@ assert_eq!(attestation.issuer, expected_issuer);
 - [Admin Audit Log](./admin-audit-log.md)
 - [Governance and Security](./governance-and-security.md)
 - [Upgrade Playbook](./upgrade-playbook.md) — step-by-step production upgrade and rollback procedure
+
+## Configuration File Compatibility
+
+This section covers **host configuration files** (`configs/*.json`, `configs/*.toml`,
+validated against `config_schema.json`). It is separate from **contract schema
+versioning** described above. Contract data migrations (`migrate`) change
+on-chain stored data. Config schema changes affect only the files that the
+host reads. The two do not share a version number, and a config change does
+not require a contract migration, or the reverse.
+
+What the current code guarantees:
+
+- **No config schema version field.** Config files do not declare a schema
+  version. `contract.version` is the version of the anchor deployment, not of
+  the config schema.
+- **Unknown keys are rejected.** Every object in `config_schema.json` sets
+  `additionalProperties: false`, and the typed structs in `src/config.rs` use
+  `deny_unknown_fields`. A config that uses a removed or renamed key fails
+  validation. It is not silently ignored. See the "Strict unknown-field
+  rejection" section of the [README](../README.md#configuration).
+- **Schema reference.** `config_schema.json` at the repository root is the
+  authoritative description of accepted fields and values.
+
+How schema changes are announced:
+
+- Changes to config fields are recorded in the changelog generated from commit
+  history (see [changelog-generation.md](changelog-generation.md)). A change that
+  breaks existing configs must include a `BREAKING CHANGE:` footer in the commit
+  message.
+
+There is no dedicated host-config migration guide yet. Until one exists, check
+the changelog and `config_schema.json` diff for the release you are upgrading to.
+This section does not promise any backward compatibility beyond what is listed
+above.
