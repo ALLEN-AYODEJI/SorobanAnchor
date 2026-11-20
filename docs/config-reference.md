@@ -136,3 +136,41 @@ When a long-running process reloads a config file with `RuntimeConfigManager`,
 a file that fails to parse or validate is rejected. The previously loaded
 configuration stays active. Fixing the file and saving it again applies the
 change on the next reload.
+
+---
+
+## Starting from a minimal sample
+
+If you are writing your first configuration, start from
+[`configs/fiat-on-off-ramp.toml`](../configs/fiat-on-off-ramp.toml). It is the
+tracked sample with the least environment-specific content. It targets
+`stellar-testnet`, and it has no certificate pins or mainnet-only settings.
+Its sections are the core ones listed in the [section index](#section-index),
+and it does not include the `remittance` or `stablecoin` sections. You can
+remove sections you do not need, but only after checking the schema, because
+some sections are required. Validate again after every removal.
+
+To try it safely, copy the file to a name you will not commit, and validate the copy:
+
+```bash
+cp configs/fiat-on-off-ramp.toml my-anchor.toml
+python3 scripts/validate_config_strict.py my-anchor.toml config_schema.json
+```
+
+Exit code `0` means the copy passes the schema. If it fails, use the
+[troubleshooting](#troubleshooting-validation-failures) steps above.
+
+Before you adapt the copy, keep these points in mind:
+
+- **Placeholder values are not live service recommendations.** The endpoints
+  (such as `*.example.com`), addresses, and email recipients in the sample are
+  placeholders. Do not use them as real services, and do not expect them to
+  respond.
+- **Do not copy secrets into the file.** Keep keys and tokens outside the
+  config, as described in [Environment-specific secrets](#environment-specific-secrets).
+- **Do not deploy the sample unchanged.** Replace every placeholder with values
+  you have confirmed for your anchor before validating it for real use.
+
+To find the fields a valid config must contain, read the `required` lists in
+[`config_schema.json`](../config_schema.json). Do not rely on this page for the
+full list.
