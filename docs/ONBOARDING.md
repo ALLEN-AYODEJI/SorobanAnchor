@@ -137,6 +137,55 @@ in [`docs/RUNBOOK.md`](RUNBOOK.md#admin-capability-management).
 
 ## 5  Day-to-day workflows
 
+### Network profile precedence
+
+Custom network profiles are stored in `~/.anchorkit/networks.json`. Each
+profile has a `name`, an `rpc_url`, a `network_passphrase`, an optional
+`horizon_url`, and an `is_default` flag. Profiles hold endpoint metadata only.
+They never store signing keys. Signing credentials are supplied separately, as
+described in the signing key section below.
+
+Which network a command uses depends on whether the subcommand has its own
+`--network` option.
+
+**Commands without their own `--network` option** (for example `doctor`) use
+this order, highest first:
+
+1. The global `--network <name>` flag.
+2. The `STELLAR_NETWORK` environment variable.
+3. The profile with `is_default: true`, set with `anchorkit network set-default --name <NAME>`.
+4. `testnet`.
+
+**Commands with their own `--network` option** (`deploy`, `register`,
+`attest`, `quote`, `revoke`, `health`, `verify`) use only that option's value.
+The option defaults to `testnet`. These commands do not read `STELLAR_NETWORK`
+or the default profile. Pass `--network` explicitly on these commands so the
+target is never set by an inherited environment variable.
+
+Once a name is chosen, its endpoints are resolved as follows:
+
+- A custom profile with that name supplies `rpc_url` and `network_passphrase`.
+- Otherwise a built-in name (`testnet`, `mainnet`, `futurenet`) uses the built-in endpoints.
+- Otherwise the name is unknown. Commands that read the global network fall back to the testnet endpoint with a warning. Commands with their own `--network` option reject unknown names before doing any work.
+
+Example, using placeholder values only:
+
+```bash
+# Register a custom profile (placeholder URL and passphrase)
+anchorkit network add --name my-net \
+  --rpc-url https://rpc.example.invalid \
+  --passphrase "Example Passphrase"
+
+# Make it the default for commands that use the global network
+anchorkit network set-default --name my-net
+
+export STELLAR_NETWORK=my-net
+anchorkit doctor                     # uses my-net
+
+# Pass --network explicitly for deploy-style commands
+anchorkit deploy --network my-net
+```
+
 ### CLI flag and environment variable precedence
 
 Several CLI flags read from environment variables when the flag is omitted.
