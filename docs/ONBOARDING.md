@@ -42,20 +42,18 @@ and are documented in [`docs/error-codes.md`](error-codes.md).
 
 ## 2  Prerequisites
 
-| Tool | Version | Why |
-|------|---------|-----|
-| Rust | 1.75+ | Build and test |
-| `wasm32-unknown-unknown` target | — | WASM build |
-| Python | 3.7+ | Config validation scripts |
-| `soroban-cli` | latest | Contract deployment |
-| Binaryen (`wasm-opt`) | optional | WASM size optimization |
-| GPG or minisign | optional | Release signing |
+Required for the documented build, test, and config-validation commands:
 
-Install the WASM target:
+1. **Rust 1.75 or newer**, for `cargo build` and `make check`.
+2. **The `wasm32-unknown-unknown` Rust target**, for the WASM build. Install it with `rustup target add wasm32-unknown-unknown`.
+3. **Python 3 with the `jsonschema` package**, for `scripts/validate_config_strict.py`. On Python versions older than 3.11, also install `tomli` so TOML configs can be read.
 
-```bash
-rustup target add wasm32-unknown-unknown
-```
+Optional, needed only for the task named:
+
+4. **`soroban-cli`**, to deploy and invoke contracts. See the commands in [`RUNBOOK.md`](RUNBOOK.md).
+5. **Binaryen (`wasm-opt`)**, for WASM size optimization. The release packaging step runs it only when it is installed; see [Release Packaging](../README.md#release-packaging).
+6. **GPG or minisign**, for signing release artifacts. See [`release-signing.md`](release-signing.md).
+7. **Live testnet credentials**, for the opt-in smoke tests. See [`live-smoke-tests.md`](live-smoke-tests.md). Supply them as environment variables in your shell or your CI secret store. Do not write them into files, issues, or pull request comments.
 
 ---
 
@@ -85,8 +83,12 @@ For testnet work:
 export SOROBAN_NETWORK=testnet
 export SOROBAN_RPC_URL=https://soroban-testnet.stellar.org:443
 export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
-export ANCHOR_ADMIN_SECRET=<your-testnet-admin-key>
 ```
+
+The live smoke tests also need `ANCHOR_CONTRACT_ID` and `ANCHOR_ADMIN_SECRET`.
+Set them only in the shell session where you run those tests, or in CI secrets.
+Do not add them to a config file or to any tracked file. See
+[`live-smoke-tests.md`](live-smoke-tests.md) for the full list.
 
 Never commit keys. The `.gitignore` already excludes `*.secret`, `*.key`,
 `.env`, and `secrets/`.
