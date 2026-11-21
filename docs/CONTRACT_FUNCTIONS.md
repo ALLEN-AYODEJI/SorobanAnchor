@@ -16,6 +16,33 @@ AnchorKit uses a **three-tier authorization model**:
 
 The primary admin implicitly holds every role and capability. Roles and capabilities are additive — an address that holds either the matching role **or** the matching capability may invoke the operation.
 
+---
+
+### Role grants vs. capability grants
+
+Roles and capabilities overlap intentionally. Use this table to decide which to grant:
+
+| Operation category | Role that covers it | Capability that covers it | Principle of least privilege |
+|---|---|---|---|
+| Approve / reject KYC | `KycAdmin` | `ManageKyc` | Grant `ManageKyc` when only KYC review is needed; grant `KycAdmin` when the delegate also needs `reopen_kyc`. |
+| Register / revoke attestors | `AttestorAdmin` | `ManageAttestors` | Grant `ManageAttestors` for session-less registration; grant `AttestorAdmin` for session-based operations as well. |
+| Cache writes and refreshes | `CacheAdmin` | `ManageCacheEntries` | These are equivalent in scope — either grants full cache write access. |
+| Enable / disable / snapshot / rollback services | *(none)* | `ToggleServices` | No role covers service toggling; use the capability. |
+| Upgrade contract WASM | *(none)* | `UpgradeContract` | No role covers upgrades; primary admin or capability holder only. |
+| Advance schema version | *(none)* | `MigrateSchema` | No role covers migrations; primary admin or capability holder only. |
+| Cache TTL / governance config | *(none)* | `SetCacheConfig` | No role covers cache configuration; use the capability. |
+| Rate limit overrides | *(none)* | `SetRateLimits` | No role covers rate limits; use the capability. |
+| JWT key management | *(none)* | `SetJwtConfig` | No role covers JWT config; use the capability. |
+| Anchor metadata / blacklist | *(none)* | `ManageAnchorMetadata` | No role covers anchor metadata; use the capability. |
+
+**Key distinction:**
+- **Roles** (`AdminRole`) are coarse-grained. `KycAdmin` grants both `approve_kyc` and `reject_kyc` together; there is no way to grant one without the other through the role model.
+- **Capabilities** (`AdminCapability`) are fine-grained and map to individual operations or tightly related operation groups. When you need a delegate to perform only one kind of privileged action, prefer a capability over a role to limit blast radius.
+- An address that holds **either** the matching role or the matching capability passes the authorization check — there is no requirement to hold both.
+- Neither roles nor capabilities can exceed the primary admin's authority. They delegate a subset of it.
+
+---
+
 ### AdminRole → Operations
 
 | Role | Operations |
@@ -47,18 +74,33 @@ All authorization failures produce `Unauthorized` (code 28).
 
 ### `initialize(env: Env, admin: Address)`
 
-Initialize the contract with an admin address. Must be called **exactly once** — the contract uses a dedicated persistent `INITIALIZED` flag to prevent re-initialization after upgrades.
+Initialize the contract with an admin address. Must be called **exactly once** before any other contract operation.
+
+**Preconditions:**
+- The contract must not already be initialized (the persistent `INITIALIZED` flag must be absent).
+- `admin` must authorize the transaction (the address signs the call).
 
 **Arguments:**
 - `env` - Soroban environment context
-- `admin` - Address that will have admin privileges (must authorize)
+- `admin` - Address that will have full admin privileges
 
 **Returns:** None
 
 **Errors:**
-- `AlreadyInitialized` (code 1) - if contract is already initialized
+- `AlreadyInitialized` (code 1) — the contract has already been initialized. The existing admin address and schema version are **not** changed; the failed call has no effect.
 
-**Side effects:** Writes `INITIALIZED` flag to persistent storage, stores admin address and initial schema version (`SCHEMAVER = 1`) to instance storage.
+**State written on success:**
+| Storage tier | Key | Value |
+|---|---|---|
+| Persistent | `INITIALIZED` | `true` (presence is the flag; TTL = `PERSISTENT_TTL`) |
+| Instance | `ADMIN` | `admin` address |
+| Instance | `SCHEMAVER` | `1` (`SCHEMA_V1`) |
+
+**Repeated-call behavior:** Any call after the first returns `AlreadyInitialized` (code 1) regardless of whether the same or a different `admin` address is supplied. No state is modified and no events are emitted on the rejected call.
+
+**Events emitted:** `("contract", "init")` carrying `ContractInitializedEvent { admin, timestamp }`.
+
+**Deployment context:** For the full sequence — WASM upload → contract deploy → `initialize` → `migrate` → service configuration — see [`examples/full_deployment_walkthrough.sh`](../examples/full_deployment_walkthrough.sh).
 
 ---
 
@@ -1304,6 +1346,8 @@ Check whether an address holds a capability (or is the primary admin).
 
 ## Service Toggle Management
 
+The toggle store is a runtime layer on top of the declared service capability set (`configure_services`). It lets operators flip individual services on or off without re-declaring the full capability set, and lets them capture a named snapshot of the current state so they can roll back to it later.
+
 ### `enable_service(env: Env, caller: Address, anchor: Address, service_code: u32) -> bool`
 
 Enable a single service for an anchor in the toggle store.
@@ -1329,27 +1373,90 @@ Disable a single service for an anchor in the toggle store.
 
 **Authorization:** Primary admin or holder of `AdminCapability::ToggleServices`.
 
+**Arguments:**
+- `env` - Soroban environment context
+- `caller` - Authorizing address
+- `anchor` - Anchor address
+- `service_code` - Service type code
+
 **Returns:** `true` if changed; `false` if already disabled
+
+**Errors:**
+- `Unauthorized` (code 28) - if caller lacks permission
 
 ---
 
 ### `snapshot_services(env: Env, caller: Address, anchor: Address, services: Vec<u32>, description: String) -> u64`
 
-Snapshot the current service configuration for `anchor` so it can be restored via `rollback_services`.
+Capture the caller-supplied service list as a named snapshot so it can later be restored via `rollback_services`.
 
 **Authorization:** Primary admin or holder of `AdminCapability::ToggleServices`.
 
-**Returns:** Snapshot ID (u64)
+**What is captured:** The `services` vector passed by the caller (a list of enabled service codes), the `anchor` address, the ledger timestamp at the time of the call, and the `description` string. The snapshot does **not** capture attestor state, KYC records, cached metadata, compliance policy, or any other contract configuration.
+
+**Arguments:**
+- `env` - Soroban environment context
+- `caller` - Authorizing address
+- `anchor` - Anchor whose service state is being snapshotted
+- `services` - Explicit list of service codes to record in the snapshot
+- `description` - Non-empty human-readable label (e.g. `"before_upgrade"`)
+
+**Returns:** Snapshot ID (u64, monotonically increasing starting at 0)
+
+**Errors:**
+- `Unauthorized` (code 28) - if caller lacks permission
+- `InvalidTemplate` (code 72) - if `description` is empty or whitespace-only
+- `InvalidTemplate` (code 72) - if `services` contains duplicate entries
+- `InvalidTemplate` (code 72) - if `services` exceeds `ServiceManager::MAX_SERVICES`
+
+**Side effects:** Writes the `ServiceConfigSnapshot` record to instance storage and increments the snapshot counter. Writes an audit log entry.
 
 ---
 
 ### `rollback_services(env: Env, caller: Address, snapshot_id: u64) -> bool`
 
-Restore service configuration from a previously taken snapshot.
+Restore the service toggle state captured in a previous snapshot.
 
 **Authorization:** Primary admin or holder of `AdminCapability::ToggleServices`.
 
-**Returns:** `true` if the snapshot was found and applied; `false` otherwise
+**Rollback behavior:** The enabled services for the anchor are replaced with the service list stored in the snapshot. Services that were enabled after the snapshot was taken are disabled; services that were in the snapshot but had been disabled since are re-enabled. The rollback is repeatable — calling it multiple times with the same `snapshot_id` produces the same result each time.
+
+**What is restored:** Only the toggle-store enabled/disabled state for the anchor named in the snapshot. Attestor registrations, KYC records, cached metadata, compliance policy, and any other configuration are not affected.
+
+**Arguments:**
+- `env` - Soroban environment context
+- `caller` - Authorizing address
+- `snapshot_id` - ID returned by a prior `snapshot_services` call
+
+**Returns:** `true` if the snapshot was found and the toggle state was restored; `false` if `snapshot_id` is out of range (no such snapshot exists)
+
+**Errors:**
+- `Unauthorized` (code 28) - if caller lacks permission
+- Returns `false` (not an error) if `snapshot_id >= get_service_snapshot_count()`
+
+**Side effects:** Overwrites the anchor's `ServiceToggleState` in persistent storage. Invalidates the anchor's metadata and capabilities cache entries (same hook as `enable_service` / `disable_service`) so stale cached capability sets are removed immediately. Writes an audit log entry.
+
+**API reference:** See also [`docs/service-management.md`](service-management.md) for the full service lifecycle guide.
+
+---
+
+### `get_service_snapshot_count(env: Env) -> u64`
+
+Return the total number of service snapshots ever created across all anchors.
+
+**Returns:** `u64` count (monotonically increasing; 0 before any snapshot is taken)
+
+**Errors:** None
+
+---
+
+### `get_service_snapshot(env: Env, snapshot_id: u64) -> Option<ServiceConfigSnapshot>`
+
+Fetch a previously taken snapshot by ID.
+
+**Returns:** `Some(ServiceConfigSnapshot)` with `snapshot_id`, `anchor`, `services`, `created_at`, and `description`; `None` if the ID is out of range.
+
+**Errors:** None
 
 ---
 
