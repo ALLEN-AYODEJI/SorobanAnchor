@@ -6,8 +6,18 @@ This document describes the contract upgrade and migration process for SorobanAn
 
 Contract upgrades are critical operations that must preserve all stored data while advancing the contract logic. SorobanAnchor implements a two-phase upgrade process:
 
-1. **Upgrade**: Deploy new contract code (WASM)
-2. **Migrate**: Update schema version and perform data transformations
+1. **Upgrade**: `upgrade(new_wasm_hash)` replaces WASM, increments the code patch version, and records upgrade event/audit data. It does not advance the stored schema or rewrite quotes.
+2. **Migrate**: `migrate(new_schema_version, batch_size)` rewrites affected stored records and commits schema/history when traversal finishes. It does not replace WASM.
+
+Both require initialization and primary-admin authorization. Follow the
+[Upgrade Playbook §5](./upgrade-playbook.md#5-step-by-step-upgrade-procedure):
+upload the release WASM, upgrade, then migrate only when a supported schema
+advance is required. These are separate transactions, potentially including
+several migration batches; there is no atomic upgrade-plus-migration guarantee.
+A later failed call does not undo an earlier upgrade or completed batch.
+See [ADR-0003](./adr/ADR-0003-contract-lifecycle-and-schema-versioning.md),
+[entry points](../src/contract.rs), and
+[authorization tests](../tests/contract_init_upgrade_tests.rs).
 
 ## Upgrade Process
 
@@ -29,7 +39,7 @@ client.upgrade(&new_wasm_hash);
 //    - Contract is initialized
 
 // 3. New WASM is deployed
-// 4. All stored data remains accessible
+// 4. Verify representative stored data against the pre-upgrade baseline
 ```
 
 ### Upgrade Authorization
@@ -57,7 +67,7 @@ Each contract version has a schema version number:
 
 ```rust
 // 1. Admin calls migrate with new version
-client.migrate(&new_version);
+client.migrate(&new_version, &batch_size);
 
 // 2. Contract validates:
 //    - Caller is admin
@@ -84,6 +94,74 @@ for the currently registered resolver are:
 
 This table describes the resolver implemented today, not a policy guarantee
 that future schema versions will support any particular transition.
+
+## Migration Preflight
+
+Keep steps 1–4 read-only using the public-key source and `--send=no` options
+in [Upgrade Preflight](#upgrade-preflight-read-only-dry-run), including for
+queries that refresh TTL. Do not submit initialization, upload, upgrade, or
+migration transactions as preflight checks.
+
+1. Record `is_initialized()`, `get_version()`, and `get_schema_version()`.
+   Stop if uninitialized: schema 0 is the default before initialization, not
+   a supported migration starting point. Capture `get_migration_count()` and
+   `get_migration_record(idx)` for existing indices below that count.
+2. Query `get_admin()` and compare it with the intended signing authority's
+   public address. Delegated roles do not authorize migration. Reading an
+   address does not prove signing authority. See `non_admin_cannot_migrate`
+   in [migration tests](../tests/migration_tests.rs) and the uninitialized-call
+   cases in [initialization tests](../tests/contract_init_upgrade_tests.rs).
+3. Confirm the release target against `LATEST_SCHEMA_VERSION` and `ALL_STEPS`
+   in [the resolver](../src/migration.rs). Currently only V1 → V2 is registered.
+   Target 0 returns `ValidationError`; same-version requests and downgrades
+   return `IllegalTransition`; targets above V2 return
+   `UnsupportedCapabilityVersion`; missing steps return `ValidationError`.
+   Skips are not generally supported. Resolver tests include
+   `test_validate_migration_zero_target_fails`,
+   `test_validate_migration_version_too_new_fails`, and
+   `test_validate_migration_skipping_step_fails`.
+4. Capture representative records using the
+   [state-preservation procedure](#state-preservation-procedure). If new code
+   is required, perform playbook §5.1–5.2 as explicit state-changing steps
+   first, then simulate migration against the installed code with `--send=no`.
+   Simulation neither persists progress nor proves later batches will succeed.
+5. **Explicit migration step:** submit an admin-authorized
+   `migrate(target, batch_size)` following
+   [playbook §5.3](./upgrade-playbook.md#53-call-migrate-if-schema-version-advances).
+   Repeat while the stored schema is below the target. At completion verify
+   target schema, one new V1 → V2 history record labeled `quotes_v1_to_v2`,
+   and the comparisons below. A request after reaching the target is rejected.
+
+## Batch-Size Semantics
+
+For V1 → V2, `batch_size` accepts every positive `u32`: 1 through
+4,294,967,295 inclusive. Zero returns `ValidationError`, even with no quotes.
+Negative and out-of-range values cannot be represented by the API.
+Initialization, admin authorization, and target validation run first and may
+return their errors before batch validation.
+
+The limit counts **quotes rewritten**, not index entries scanned, storage
+operations, or ledger budget. Entries at or below the saved quote-ID cursor
+are skipped; missing anchor references, missing records, and already-V2 records
+do not consume the rewrite allowance. The implementation reads the quote index
+and may scan additional entries. No positive value guarantees a transaction
+fits network resource limits; there is no code-defined recommended batch size.
+
+If further index entries remain after reaching the allowance, the call saves a
+cursor and returns without advancing schema/history. The next call resumes
+after that cursor and can use a different positive size. Finishing traversal
+removes the cursor and commits schema/history, even with no quotes to rewrite.
+The call returns unit, not a progress count: query `get_schema_version()` for
+completion. Completed batches persist across calls; batches that rewrite quotes
+also append admin audit entries.
+
+See `migrate_quotes_to_v2` in [contract.rs](../src/contract.rs) and these
+[migration tests](../tests/migration_tests.rs):
+`quote_migration_advances_cursor_in_batches` (size 1 and resumption),
+`quote_migration_zero_batch_rejected_without_progress` (zero),
+`quote_migration_max_batch_completes_with_or_without_quotes` (upper boundary
+and empty data), and `quote_migration_logs_admin_audit_per_batch` (audit data).
+These fixtures are not resource-budget benchmarks.
 
 ## Upgrade Preflight (Read-Only Dry Run)
 
@@ -124,7 +202,7 @@ call:
 
 ```bash
 # ── Read-only: simulate migrate on the upgraded code ──────────────────────
-stellar contract invoke $READ -- migrate --new_schema_version 2 --batch_size 100
+stellar contract invoke $READ -- migrate --new_schema_version 2 --batch_size "$BATCH_SIZE"
 ```
 
 A simulation error shows the call would be rejected: `#24` (`IllegalTransition`)
@@ -138,45 +216,33 @@ show whether further `migrate` calls will be needed.
 `stellar contract upload`, `-- upgrade`, and `-- migrate` without `--send=no`.
 See the [Upgrade Playbook](./upgrade-playbook.md) §5 for that procedure.
 
-## Data Preservation
+## State-Preservation Procedure
 
-### Preserved Data Types
+Use the same known IDs and read-only options before upgrading and after
+migration completes. These representative checks do not guarantee untested
+state. The upgrade fixtures use minimal WASM and describe replacement as a
+no-op in the test environment; they do not prove compatibility of arbitrary
+release WASM.
 
-The following data types are preserved across upgrades and migrations:
-
-1. **Attestations**
-   - Issuer, subject, timestamp
-   - Payload hash, signature
-   - Schema version
-
-2. **Quotes**
-   - Anchor, base/quote assets
-   - Rate, fees, amounts
-   - Validity period
-   - Schema version
-
-3. **Sessions**
-   - Initiator, creation time
-   - Session TTL, nonce
-   - Operation count
-   - Closed status
-
-4. **Audit Logs**
-   - Session ID, actor
-   - Operation context
-   - Timestamps
-
-### Data Accessibility
-
-After upgrade/migration, all data remains accessible through the same APIs:
-
-```rust
-// Before upgrade
-let attestation = client.get_attestation(&id);
-
-// After upgrade
-let attestation = client.get_attestation(&id);  // Same data
-```
+1. Read known attestations with `get_attestation(id)` and compare issuer,
+   subject, and timestamp. Evidence: `attestations_preserved_after_upgrade`
+   in [migration_tests.rs](../tests/migration_tests.rs).
+2. Read quotes with `get_quote(anchor, quote_id)` and compare anchor, rate,
+   and fee percentage. For migrated V1 quotes also verify schema V2 and
+   `routing_reason = None`. Evidence: `quotes_preserved_after_upgrade` and
+   `v1_quote_readable_after_migration` in the same test file.
+3. Read sessions with `get_session(session_id)` and compare initiator and
+   closed status, as asserted by `sessions_preserved_after_upgrade`.
+   `multiple_data_types_preserved_after_upgrade` checks attestation, quote,
+   and session accessibility together.
+4. Compare `get_schema_version()`, `get_migration_count()`, and
+   `get_migration_record(idx)` with the baseline and intended transition.
+   Partial batches leave the stored schema unchanged. Evidence:
+   `quote_migration_advances_cursor_in_batches` and the resolver test
+   `test_get_migration_record_returns_correct_data` in
+   [migration.rs](../src/migration.rs). New per-batch admin audit entries are
+   expected (`quote_migration_logs_admin_audit_per_batch`); that test does
+   not establish preservation of all historical audit logs.
 
 ## Schema Changes
 
@@ -240,7 +306,11 @@ fn migrate_attestations_v1_to_v2(env: &Env) {
 
 ### Test Coverage
 
-The test suite includes:
+The test suite includes the representative cases below. Some older integration
+fixtures (`migration_can_skip_versions`, `migration_to_higher_version_succeeds`,
+and `quote_migration_is_idempotent`) still request unsupported V3+ targets.
+Those expectations conflict with the current resolver and are not evidence of
+supported transitions; use the resolver and its boundary tests for that policy.
 
 1. **Data Preservation Tests**
    - Attestations preserved after upgrade
@@ -250,7 +320,7 @@ The test suite includes:
 
 2. **Migration Path Tests**
    - Migration to higher version succeeds
-   - Migration can skip versions
+   - Unregistered skipped-version paths are rejected by the resolver
    - Migration to same version fails
    - Migration to lower version fails
    - Migration to zero version fails
@@ -279,32 +349,11 @@ cargo test migration_tests -- --nocapture
 
 ## Rollback Strategy
 
-### Rollback Scenarios
-
-1. **Failed Upgrade**
-   - If new WASM has bugs, deploy previous WASM
-   - All data remains intact
-   - No migration needed
-
-2. **Failed Migration**
-   - If migration logic has bugs, migrate to previous version
-   - Data may need manual recovery
-   - Consider data backup before migration
-
-### Rollback Procedure
-
-```rust
-// If upgrade fails:
-// 1. Deploy previous WASM
-client.upgrade(&previous_wasm_hash);
-
-// 2. If migration was attempted, migrate back
-client.migrate(&previous_version);
-
-// 3. Verify data integrity
-let attestation = client.get_attestation(&id);
-assert_eq!(attestation.issuer, expected_issuer);
-```
+Migration cannot downgrade the schema. Replacing WASM does not reverse stored
+transformations or reset the code patch counter. Verify that a previous artifact
+can read the current layout before restoring it. Recovery may require a reviewed
+forward repair and the pre-upgrade export; there is no automatic schema rollback.
+See [Upgrade Playbook §7](./upgrade-playbook.md#7-rollback-procedure).
 
 ## Best Practices
 

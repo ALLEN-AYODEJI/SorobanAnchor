@@ -709,6 +709,51 @@ mod migration_tests {
     }
 
     #[test]
+    fn quote_migration_zero_batch_rejected_without_progress() {
+        let env = make_env();
+        set_ledger(&env, 1000);
+        let (client, admin) = deploy(&env);
+        client.initialize(&admin);
+
+        // Zero is invalid even when there are no quotes to rewrite.
+        let error = client.try_migrate(&SCHEMA_V2, &0u32)
+            .expect_err("zero batch must fail")
+            .expect("expected a contract error");
+        assert_eq!(error, soroban_sdk::Error::from_contract_error(
+            anchorkit::errors::ErrorCode::ValidationError as u32));
+        assert_eq!(client.get_schema_version(), SCHEMA_V1);
+        assert_eq!(client.get_migration_count(), 0);
+        env.as_contract(&client.address, || assert!(!cursor_exists(&env)));
+    }
+
+    #[test]
+    fn quote_migration_max_batch_completes_with_or_without_quotes() {
+        for quote_count in [0u32, 2u32] {
+            let env = make_env();
+            set_ledger(&env, 1000);
+            let (client, admin) = deploy(&env);
+            client.initialize(&admin);
+            let anchor = Address::generate(&env);
+            let usd = soroban_sdk::String::from_str(&env, "USD");
+            for _ in 0..quote_count {
+                client.submit_quote(&anchor, &usd, &usd, &100u64, &5u32,
+                    &1000u64, &10000u64, &2000u64);
+            }
+
+            client.migrate(&SCHEMA_V2, &u32::MAX);
+
+            assert_eq!(client.get_schema_version(), SCHEMA_V2);
+            assert_eq!(client.get_migration_count(), 1);
+            env.as_contract(&client.address, || assert!(!cursor_exists(&env)));
+            for id in 1..=u64::from(quote_count) {
+                let quote = client.get_quote(&anchor, &id);
+                assert_eq!(quote.schema_version, SCHEMA_V2);
+                assert_eq!(quote.rate, 100);
+            }
+        }
+    }
+
+    #[test]
     fn quote_migration_advances_cursor_in_batches() {
         let env = make_env();
         set_ledger(&env, 1000);
