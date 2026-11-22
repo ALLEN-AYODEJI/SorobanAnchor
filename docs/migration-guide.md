@@ -53,6 +53,31 @@ Each contract version has a schema version number:
 - **Version 0**: Uninitialized; `initialize()` writes schema version 1.
 - **Version 1+**: Schema versions recorded after initialization and migrations.
 
+### Inspect the schema version (read-only)
+
+Before planning an upgrade, query the deployed contract's
+[`get_schema_version`](./CONTRACT_FUNCTIONS.md#get_schema_versionenv-env---u32).
+Using the Stellar CLI, supply your contract ID, RPC URL, network passphrase,
+and a public source account address in the environment variables below:
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --rpc-url "$RPC_URL" \
+  --network-passphrase "$PASSPHRASE" \
+  --source-account "$ADMIN_PUBLIC_KEY" \
+  --send=no \
+  -- get_schema_version
+# Example output: 1
+```
+
+`--send=no` keeps the invocation simulation-only. The query requires no admin
+authorization and only reads storage; no signing key is needed. Its result is
+a single `u32`, not an object: `0` means uninitialized, `1` is the initial
+schema written by `initialize`, and `2` means the V1-to-V2 migration completed.
+This is the stored data schema version, distinct from the software version
+returned by `get_version`. The snippet performs no upgrade or migration.
+
 ### Migration Flow
 
 ```rust

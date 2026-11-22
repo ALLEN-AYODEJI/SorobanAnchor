@@ -113,6 +113,84 @@ access is required.
 
 ---
 
+## Operational note: revoke a compromised or retired attestor
+
+Use the contract API for the sequence below. It complements the revocation
+step in [the attestation workflow](../examples/attestation_workflow.sh).
+
+1. Confirm the network, contract ID, and attestor address. Read `get_admin()`
+   to identify the primary admin whose authorization `revoke_attestor` requires.
+   Check `is_attestor(attestor)` and save `get_attestor_profile(attestor)`
+   while registration is still active. Record any existing attestation IDs
+   needed for later verification. If already inactive, inspect
+   `get_attestor_revocation_info(attestor)` before retrying.
+2. Stop the attestor's external submission process as an operational measure.
+   Setting config `enabled: false` does not enforce this on-chain.
+   `disable_service(caller, anchor, service_code)` controls an anchor's service
+   availability and has separate authorization; it does not revoke an
+   attestor's registration.
+3. With primary-admin authorization, call `revoke_attestor(attestor)`.
+   The following is SDK pseudocode using an existing generated client;
+   transaction construction and signing are supplied by the caller:
+
+   ```text
+   client.revoke_attestor(&attestor);
+   ```
+
+4. Verify `is_attestor(attestor)` is `false`. Read
+   `get_attestor_revocation_info(attestor)` and confirm it returns a record
+   with the expected `attestor` and `revoked_by`, a `revoked_at` timestamp,
+   and `reactivated == false`. New attestation submissions from that address
+   are rejected. Retrieve previously recorded IDs with `get_attestation(id)`
+   to check historical records as needed.
+
+Revocation removes the active registration and active public-key entry. It
+does not delete existing attestations or KYC records; those remain subject to
+their normal storage lifetime. The revocation record retains the public key
+and revocation metadata for recovery, and the call writes audit entries and
+emits an `attestor.removed` event. Repeating the call fails with
+`AttestorNotRegistered`; check the inactive state and revocation record before
+treating that error as an already completed revocation.
+
+Revocation does not rotate external keys. `reactivate_attestor` restores the
+stored public key, so recovery of a compromised key needs a separately
+reviewed plan rather than automatic reactivation. See the
+[attestor management API](./CONTRACT_FUNCTIONS.md#attestor-management).
+
+## Delegating administrative roles and capabilities
+
+These on-chain `AdminRole` and `AdminCapability` grants are separate from the
+configuration role labels described below. See the
+[access-control API](./CONTRACT_FUNCTIONS.md#role-based-access-control) and
+[capability API](./CONTRACT_FUNCTIONS.md#fine-grained-capability-management).
+
+Only the primary admin, authenticated by `require_admin`, can call
+`grant_role`, `revoke_role`, `grant_capability`, or `revoke_capability`.
+Holding a role or capability does not authorize a delegate to grant or revoke
+permissions, including their own. The primary admin implicitly holds every
+role and capability; removing an explicit grant cannot remove that authority.
+
+Grants are specific to an address and a role or capability. They accumulate:
+where an operation accepts either a role or a capability, revoking one leaves
+access intact if the other still authorizes it. Authorization is checked at
+each operation's entry point; a grant does not bypass other validation or
+session requirements. In particular, `AttestorAdmin` permits the session-based
+registration/revocation entry points; the direct `revoke_attestor` entry point
+requires primary-admin authorization.
+
+As **advisory least-privilege practice**, grant only the smallest operation
+group the delegate needs. For example, `ToggleServices` covers service
+toggles, snapshots, and rollbacks together; it is not restricted to disabling
+one service. Grant APIs take no per-anchor scope, expiry, or per-call limit,
+so do not assume those restrictions exist. Review each entry point before
+granting access. Inspect `has_role` and `has_capability` before and after
+changes, and revoke every overlapping grant when withdrawing access.
+
+The role-specific and primary-admin behavior is exercised in
+[`admin_permission_tests.rs`](../tests/admin_permission_tests.rs); the grant
+and revoke entry points enforce primary-admin authorization in
+[`contract.rs`](../src/contract.rs).
+
 ## Role Definitions
 
 ### 1. kyc-issuer

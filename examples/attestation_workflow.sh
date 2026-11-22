@@ -205,7 +205,8 @@ echo "      --network $NETWORK \\"
 echo "      --source $ADMIN_ACCOUNT"
 echo ""
 cat <<'RUST'
-    contract.revoke_attestor(env, attestor_address.clone(), admin_address.clone())?;
+    // SDK pseudocode: existing generated client, primary-admin authorization.
+    client.revoke_attestor(&attestor_address);
     // is_attestor() now returns false; future submissions are rejected
 RUST
 echo ""

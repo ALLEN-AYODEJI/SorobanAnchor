@@ -122,7 +122,7 @@ fn standard_sep6_status_resolves_via_fallback_when_not_registered() {
 }
 
 #[test]
-fn all_standard_statuses_resolve_via_fallback() {
+fn standard_statuses_resolve_via_fallback_and_unknown_maps_to_error_with_raw_preserved() {
     let map = VendorStatusMap::new();
     let cases: &[(&str, TransactionStatus)] = &[
         ("pending_external", TransactionStatus::PendingExternal),
@@ -139,6 +139,9 @@ fn all_standard_statuses_resolve_via_fallback() {
         ("too_large", TransactionStatus::TooLarge),
         ("pending_stellar", TransactionStatus::PendingStellar),
         ("waiting_customer_action", TransactionStatus::WaitingCustomerAction),
+        // An unfamiliar vendor status (including a SEP-31 vendor's value)
+        // falls back to Error while retaining the raw text for diagnostics.
+        ("pending_vendor_compliance_review", TransactionStatus::Error),
     ];
     for (raw, expected) in cases {
         let entry = map.resolve(raw);
