@@ -3,6 +3,35 @@
 All errors are represented as `AnchorKitError` (see `src/errors.rs`), carrying a
 numeric `ErrorCode`, a human-readable `message`, and an optional `context` string.
 
+## Compatibility expectations
+
+The canonical assignments belong to the contract API in
+[`src/errors.rs`](../src/errors.rs). Preserve existing numeric discriminants and
+their meanings; use unused values for new errors instead of renumbering or reusing
+codes. Clients should branch on numeric `ErrorCode` values. Human-readable
+`message` and optional `context` strings are diagnostics and may be clarified
+without changing the numeric code.
+
+Changing an assignment or which error an operation returns can break client
+handling even if the text stays the same. Explain the impact and any client
+migration in the PR for maintainer review under the existing
+[governance rules](governance-and-security.md#decision-making). This states the
+current compatibility expectation, not an additional release or semver promise.
+Update this reference and affected constructor/call-site tests together; do not
+silently refresh assertions to hide a mapping change. Consult the
+[API snapshot guidance](api-contract-snapshots.md#6-what-counts-as-a-breaking-change),
+but also review numeric values and behavior directly.
+
+Exact regression coverage in
+[`tests/error_code_round_trip_tests.rs`](../tests/error_code_round_trip_tests.rs)
+includes `replay_attack_round_trips_through_u32`,
+`replay_attack_discriminant_is_stable`, and
+`replay_attack_value_is_distinct_from_neighbours`. These pin the representative
+`ReplayAttack = 6` mapping, not every code. In
+[`src/errors.rs`](../src/errors.rs), `test_no_duplicate_discriminants` and
+`test_named_constructors` cover uniqueness and constructor behavior. Extend the
+relevant regression coverage for additions or intentional mapping changes.
+
 ## Numbering scheme
 
 | Range  | Category                              |
