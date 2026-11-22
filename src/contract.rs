@@ -2624,8 +2624,8 @@ impl AnchorKitContract {
 
     /// Get the current on-chain data schema version.
     ///
-    /// Returns the stored schema version (set via `migrate`), or 0 before any
-    /// migration has been run.
+    /// Returns the stored schema version: 0 before initialization, 1 after
+    /// `initialize`, or the version committed by a completed `migrate` call.
     pub fn get_schema_version(env: Env) -> u32 {
         migration::current_version(&env)
     }
