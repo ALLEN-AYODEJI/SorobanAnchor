@@ -1,6 +1,6 @@
 # Admin Audit Log
 
-The admin audit log tracks all configuration changes made by administrators, providing a complete audit trail for compliance and security purposes.
+The admin audit log tracks all configuration changes made by administrators, providing a bounded history for operator investigations.
 
 ## Overview
 
@@ -47,6 +47,130 @@ Additional change types can be added as needed:
 - `ttl_update` - TTL configuration changes
 - `cache_config_update` - Cache configuration changes
 - `admin_change` - Admin address changes
+
+## Read-only operator example
+
+Admin configuration entries use `AdminAuditLog::get_entry`, a Rust module
+interface called in the contract storage context. It is not an
+`AnchorKitContractClient` query endpoint. For an existing `env` in that context:
+
+```rust
+use anchorkit::admin_audit_log::AdminAuditLog;
+
+let entry_id = 0u64;
+let record = AdminAuditLog::get_entry(&env, entry_id);
+let config = AdminAuditLog::get_config(&env);
+match record {
+    Some(entry) => {
+        // Inspect entry.change_type, target, old_value, new_value,
+        // timestamp, status, and error_message in a trusted operator tool.
+        // Redact before sharing; do not print the raw record into issue logs.
+        assert_eq!(entry.entry_id, entry_id);
+    }
+    None => {
+        // No stored entry at this ID; this is not an authorization error.
+    }
+}
+```
+
+Illustrative redacted rendering (not the wire/export format):
+
+```text
+entry_id: 0
+admin: [REDACTED_ADMIN]
+change_type: endpoint_update
+target: [REDACTED_ATTESTOR]
+old_value: https://old.example.invalid
+new_value: https://new.example.invalid
+timestamp: 1000
+status: success
+error_message: ""
+```
+
+This records an endpoint change at ledger timestamp 1000; `success` describes
+the recorded change, not the endpoint's current health. A `failed` record's
+`error_message` supplies diagnostic context and must also be checked for secrets.
+`None` means unavailable at that ID: it may never have been written, may have
+been evicted or cleared, or storage may no longer be available. It does not prove
+that no privileged action occurred. These read helpers do not authenticate callers;
+an operator service must apply its own access policy. A service authorization
+failure must be reported separately from an absent record.
+
+Regression references:
+[`entries_can_be_retrieved_by_id`, `non_existent_entry_returns_none`, and
+`failed_change_logged_with_error_message`](../tests/admin_audit_log_tests.rs).
+See [retention and export limits](#retention-and-export-limits) before relying on
+this log for historical investigations.
+
+## Retention and export limits
+
+There are two distinct stores; their settings and record formats are not
+interchangeable.
+
+- **Admin configuration records**
+  ([implementation](../src/admin_audit_log.rs)): defaults are logging enabled,
+  `max_entries = 10_000`, and `ttl_seconds = 31_536_000`. At capacity, each write
+  removes ID `entry_id - max_entries`; `max_entries = 0` disables that eviction.
+  Lowering capacity does not sweep all older records immediately.
+  `clear_entries` requires the primary admin, removes records, and resets IDs
+  to zero. The counter counts writes since reset, not currently retained entries.
+  The TTL value must fit `u32`; it is passed directly to Soroban instance
+  `extend_ttl`, whose units are ledger counts. Despite the field name, this
+  implementation does not enforce a per-record wall-clock expiry. A configured
+  “one year” value is therefore not a guaranteed year of history.
+- **Session operation records**
+  ([contract implementation](../src/contract.rs)): `get_audit_log_retention`
+  defaults to `0`; `set_audit_log_retention` accepts `0..=3650` days.
+  Zero represents no configured time limit, not unlimited archival availability.
+  `prune_audit_logs(before_timestamp)` is admin-only and removes timestamps
+  strictly less than the cutoff, keeping equality. Each call scans only IDs
+  `0..min(total, 100)`; repeated calls do not advance beyond those first 100 IDs.
+  Setting retention alone does not schedule pruning. If a positive auto-prune
+  threshold is exceeded, `get_audit_log_count` invokes that same bounded scan
+  with cutoff `now.saturating_sub(retention_days * 86400)`. This path also
+  computes a cutoff when retention is zero; do not enable it expecting zero to
+  preserve all records. Counts are IDs ever allocated, not live record counts.
+  Storage TTL remains a separate constraint.
+
+For session records, supported reads include `get_audit_log(log_id)`,
+`get_audit_logs_paginated(offset, limit)`, and
+`get_session_logs_paginated(session_id, offset, limit)`. A missing single
+record raises `AuditLogNotFound`; pages skip absent records. Page limits are
+capped at 50 and offsets select ID/index windows, not a count of surviving
+records.
+
+`export_audit_log_batch(start_id, limit)` exports **session operation records**,
+not `AdminConfigChangeEvent` records. It returns UTF-8 JSON bytes containing an
+array of quoted hex-encoded XDR records, not JSON objects. The limit is capped
+at 50 IDs examined; missing IDs are skipped. An empty window returns `[]`,
+including a pruned window with surviving records elsewhere. Advance by the
+requested ID window (at most 50), not the number of returned records; an empty
+batch does not establish that all later IDs are empty. Export does not delete
+records. These query/export functions have no admin authorization check.
+
+Operators are responsible for exporting available history before loss, decoding
+hex then XDR with the matching schema, tracking contract/network and ID windows,
+and protecting and retaining any external archive. Admin entries require a
+separate collection using their module interface or published
+`("admin", "audit", entry_id)` events; the session export is not their archive.
+On-chain storage and emitted events are not an unlimited archival service.
+
+Direct regression references:
+
+- [Admin tests](../tests/admin_audit_log_tests.rs):
+  `default_configuration_created`,
+  `clear_removes_stored_records_and_resets_counter`,
+  `oversized_ttl_is_rejected_before_storage_write`.
+- [Retention tests](../tests/audit_log_retention_tests.rs):
+  `test_max_retention_boundary_is_accepted_exactly`,
+  `test_over_limit_retention_is_rejected`,
+  `test_auto_prune_triggers_when_threshold_exceeded`.
+- [Export/boundary tests](../tests/audit_log_retention_export_tests.rs):
+  `prune_boundary_entry_at_threshold_is_kept`,
+  `prune_removes_entry_strictly_before_threshold`,
+  `export_each_entry_is_a_hex_string`,
+  `export_range_with_no_events_returns_empty_array`,
+  `export_batch_size_is_capped_at_50`.
 
 ## API Usage
 
@@ -110,13 +234,13 @@ use anchorkit::admin_audit_log::{AdminAuditLog, AdminAuditLogConfig};
 let config = AdminAuditLog::get_config(&env);
 println!("Logging enabled: {}", config.enabled);
 println!("Max entries: {}", config.max_entries);
-println!("TTL: {} seconds", config.ttl_seconds);
+println!("Instance TTL argument (ledgers): {}", config.ttl_seconds);
 
 // Update configuration
 let new_config = AdminAuditLogConfig {
     enabled: true,
     max_entries: 5000,
-    ttl_seconds: 86400, // 1 day
+    ttl_seconds: 86400, // Passed to instance extend_ttl as ledger counts
 };
 AdminAuditLog::set_config(&env, &new_config);
 
@@ -155,14 +279,14 @@ pub struct AdminConfigChangeEvent {
 pub struct AdminAuditLogConfig {
     pub enabled: bool,              // Enable/disable logging
     pub max_entries: u32,           // Maximum entries to retain (0 = unlimited)
-    pub ttl_seconds: u64,           // Time-to-live for entries
+    pub ttl_seconds: u64,           // Passed to instance extend_ttl (ledger counts)
 }
 ```
 
 **Default Configuration:**
 - Enabled: `true`
 - Max Entries: `10,000`
-- TTL: `31,536,000` seconds (1 year)
+- TTL field: `31,536,000` (passed as ledger counts; see retention limits)
 
 ## Best Practices
 
@@ -262,30 +386,16 @@ The admin audit log satisfies common compliance requirements:
 
 ### Data Retention
 
-Configure retention based on compliance requirements:
-
-```rust
-// 1 year retention (default)
-let config = AdminAuditLogConfig {
-    enabled: true,
-    max_entries: 10000,
-    ttl_seconds: 31_536_000,
-};
-
-// 7 years retention (compliance)
-let config = AdminAuditLogConfig {
-    enabled: true,
-    max_entries: 100000,
-    ttl_seconds: 220_752_000, // 7 years
-};
-```
+Use the [retention and export limits](#retention-and-export-limits) above when
+planning retention. Configuration values do not guarantee wall-clock availability
+or establish compliance; preserve required history in a protected external archive.
 
 ### Access Control
 
-Ensure only authorized admins can:
-- Make configuration changes
-- View audit logs
-- Modify audit log configuration
+Apply access controls in operator tools that display audit records. The read
+helpers do not enforce an admin check; see the store-specific authorization
+and retention details above. Keep privileged configuration and clearing actions
+restricted to authorized operators.
 
 ## Troubleshooting
 
@@ -304,7 +414,7 @@ Ensure only authorized admins can:
 
 **Solutions**:
 1. Reduce `max_entries` in configuration
-2. Reduce `ttl_seconds` to expire old entries faster
+2. Review instance TTL behavior in [retention limits](#retention-and-export-limits); it is not per-entry wall-clock expiry
 3. Implement archival of old entries to external storage
 
 ### Missing Audit Entries
