@@ -81,7 +81,9 @@ any     → future   ✗  Panics — contract does not know that version yet
 
 ## 4  Pre-Upgrade Checklist
 
-Work through every item before touching the live contract.
+Work through every item before touching the live contract. For the short,
+read-only procedure before migration, see the [migration preflight](./migration-guide.md#migration-preflight).
+See also [upgrade versus migration](./migration-guide.md#overview).
 
 ### 4.1  Build the release artifacts
 
@@ -203,7 +205,8 @@ Check the release notes for the target version.  If no schema change is
 documented, skip this step.
 
 ```bash
-# Migrate to v2 in batches of 100 records:
+# Set BATCH_SIZE to a positive u32 appropriate to the simulated resource budget.
+# See the exact batch semantics linked below.
 soroban contract invoke \
   --id "$CONTRACT_ID" \
   --rpc-url "$RPC_URL" \
@@ -211,10 +214,14 @@ soroban contract invoke \
   --source "$ADMIN_SECRET" \
   -- migrate \
   --new_schema_version 2 \
-  --batch_size 100
+  --batch_size "$BATCH_SIZE"
 ```
 
-If the dataset is large, `migrate()` returns without advancing the version
+See [batch-size semantics](./migration-guide.md#batch-size-semantics) for accepted
+values, zero rejection, cursor progress, and resource limits. The limit counts
+rewritten quotes, not scanned entries. No fixed production size is prescribed.
+
+If traversal is incomplete, `migrate()` returns without advancing the version
 until all records are processed.  Repeat the call until `get_schema_version()`
 returns the target version:
 
@@ -225,7 +232,7 @@ while true; do
   if [ "$version" == "2" ]; then break; fi
   sleep 5
   soroban contract invoke --id "$CONTRACT_ID" ... -- migrate \
-    --new_schema_version 2 --batch_size 100
+    --new_schema_version 2 --batch_size "$BATCH_SIZE"
 done
 ```
 
@@ -233,7 +240,9 @@ done
 
 ## 6  Post-Upgrade Verification
 
-Run these checks immediately after the upgrade completes.
+Run these checks immediately after the upgrade completes. Follow the numbered
+[state-preservation procedure](./migration-guide.md#state-preservation-procedure)
+for representative sessions, quotes, attestations, and schema/history comparisons.
 
 ### 6.1  Smoke-test core functions
 
@@ -273,9 +282,9 @@ healthy signals from the contract.
 
 ## 7  Rollback Procedure
 
-If any step above fails, roll back by re-deploying the previous WASM.
-On-chain data is **never deleted** during an upgrade, so a rollback only needs
-to replace the contract code.
+Before replacing WASM with a previous artifact, verify that it can read the
+current stored layout. Replacing code does not undo migration transformations
+or completed batches. There is no automatic schema rollback.
 
 ```bash
 # 1.  Re-upload the previous WASM (or use the hash recorded in step 4.4).
@@ -295,7 +304,8 @@ soroban contract invoke \
   -- upgrade \
   --new_wasm_hash "$PREVIOUS_WASM_HASH"
 
-# 3.  Verify the old version is restored.
+# 3.  Verify the restored code works with current data.
+# get_version tracks upgrade calls; its patch counter is not reset.
 soroban contract invoke --id "$CONTRACT_ID" ... -- get_version
 ```
 
@@ -323,10 +333,10 @@ is required; skip step 5.3 (`migrate()`).
 ### v0.1.x → v0.2.0 (SCHEMA_V2)
 
 - **Change:** `Quote` records gain `routing_reason: Option<String>`.
-- **Migration:** Call `migrate(2, 100)` to rewrite existing `QuoteV1` records
+- **Migration:** Call `migrate(2, batch_size)` to rewrite existing `QuoteV1` records
   to `Quote` with `routing_reason = None`.
-- **Batch size:** Use `batch_size = 100` for production; increase if ledger
-  budget allows.
+- **Batch size:** Use a positive `u32` and simulate within the ledger budget;
+  see [batch-size semantics](./migration-guide.md#batch-size-semantics).
 - **Repeat:** Call until `get_schema_version()` returns `2`.
 - **Backward compatibility:** Pre-migration `QuoteV1` records decoded by the
   V1 WASM continue to work.  After the migration, the new WASM reads all
