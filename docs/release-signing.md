@@ -103,15 +103,71 @@ run:
 From the repository root, with the downloaded files under `dist/`, verify the
 packaged tarball checksum:
 
+**Linux / macOS:**
+
 ```bash
 VERSION="0.2.0" # Replace with the downloaded release version.
 sha256sum --check "dist/anchorkit-${VERSION}.sha256"
 # Expected: dist/anchorkit-0.2.0.tar.gz: OK
 ```
 
-This detects whether the tarball matches the published checksum, but a
-checksum does not establish who published it. Verify the detached signature
-separately to authenticate the publisher.
+**macOS (alternative):**
+
+```bash
+VERSION="0.2.0"
+shasum -a 256 --check "dist/anchorkit-${VERSION}.sha256"
+# Expected: dist/anchorkit-0.2.0.tar.gz: OK
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$version = "0.2.0"
+$expected = (Get-Content "dist\anchorkit-$version.sha256").Split()[0]
+$actual = (Get-FileHash "dist\anchorkit-$version.tar.gz" -Algorithm SHA256).Hash.ToLower()
+if ($expected -eq $actual) {
+    Write-Host "dist\anchorkit-$version.tar.gz: OK" -ForegroundColor Green
+} else {
+    Write-Host "dist\anchorkit-$version.tar.gz: FAILED" -ForegroundColor Red
+    Write-Host "Expected: $expected" -ForegroundColor Red
+    Write-Host "Actual:   $actual" -ForegroundColor Red
+    exit 1
+}
+```
+
+#### What checksum verification proves
+
+A matching checksum confirms that:
+
+- The downloaded file is bitwise-identical to the file used to generate the
+  published checksum.
+- No corruption or incomplete download occurred.
+
+A matching checksum **does not** prove:
+
+- **Who** published the file (authentication).
+- **When** the file was built (freshness).
+- **Whether** the publisher is trustworthy.
+
+**Trust boundary:** Checksum verification detects accidental mismatch or
+corruption, but it does not independently authenticate the publisher. An
+attacker with access to the distribution channel could publish both a
+malicious tarball and a matching checksum.
+
+For authentication, verify the detached signature separately (see below).
+
+#### What to do if verification fails
+
+If checksum verification fails:
+
+1. **Re-download** the tarball — network errors can corrupt downloads.
+2. **Check the source** — ensure you downloaded from the official GitHub
+   Releases page or a trusted mirror.
+3. **Verify the checksum file** — ensure the `.sha256` file itself was not
+   corrupted or tampered with. Compare its signature (see signature
+   verification below).
+4. **Report the mismatch** — if the problem persists, report it to the
+   maintainers immediately. Do not use the tarball.
 
 ### Verify the signed release
 
@@ -188,12 +244,61 @@ workflow dispatch step or a protected environment that injects the signing key:
 
 ## 6  Key management
 
+### Custody boundaries
+
+Release signing divides into two responsibilities:
+
+| Responsibility | Who | Where | Requires signing key |
+|----------------|-----|-------|---------------------|
+| **Build** | Any contributor | Local or CI | ❌ No |
+| **Sign** | Maintainers only | Protected environment | ✅ Yes |
+| **Verify** | Anyone | Any environment | ❌ No (public key only) |
+
+**Contributors** build and test release artifacts locally but **cannot sign**
+them. Signing requires access to the private signing key, which is restricted
+to maintainers.
+
+**Maintainers** sign artifacts in a protected environment (a secure local
+machine or a CI job with secret access). The signing step runs **after** the
+build and artifact packaging steps complete successfully.
+
+**Users** verify signatures using the published public key. The public key is
+safe to distribute and does not grant signing authority.
+
+### Key storage
+
 - The release signing key must **never** be committed to the repository.
 - Store the private key in GitHub Actions secrets (`RELEASE_GPG_KEY`,
   `RELEASE_GPG_KEY_ID`) or in a hardware security module for mainnet releases.
 - Publish the **public key** in the repository (e.g. `docs/anchorkit-release.pub`)
   and in your release notes so users can import it before verifying.
 - Rotate keys annually or immediately after any suspected compromise.
+
+### Local signing workflow (maintainers only)
+
+Maintainers with the signing key installed locally can sign a release after
+building:
+
+```bash
+# 1. Build release artifacts (any contributor can do this)
+make release
+
+# 2. Sign artifacts (maintainers only — requires GPG key in keyring)
+ANCHORKIT_GPG_KEY_ID=releases@example.com make release-sign
+
+# 3. Verify signatures before publishing
+make release-verify TARBALL=dist/anchorkit-0.1.0.tar.gz
+```
+
+If you do not have the signing key, you can still build and test release
+artifacts. The CI pipeline will handle signing when a tagged release is
+pushed by a maintainer.
+
+### Questions about key access
+
+If you need signing access or suspect a key compromise, contact the
+maintainers privately (do not open a public issue). See
+[SECURITY.md](../SECURITY.md) for contact information.
 
 ---
 
@@ -219,5 +324,6 @@ pipeline configuration before a real release.
 - [sign_release.sh](../scripts/sign_release.sh)
 - [verify_release.sh](../scripts/verify_release.sh)
 - [package_release.sh](../scripts/package_release.sh)
+- [Artifact Provenance Inspection](artifact-provenance.md)
 - [Governance and Security](governance-and-security.md)
 - [Upgrade Playbook](upgrade-playbook.md)
