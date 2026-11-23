@@ -440,6 +440,17 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_malformed_authority_returns_error() {
+        // A non-numeric port is a malformed authority value; the normalizer
+        // must reject it rather than silently accepting it.
+        let result = normalize_url("https://example.com:notaport");
+        assert!(matches!(
+            result,
+            Err(AnchorKitError::InvalidEndpointFormat(_))
+        ));
+    }
+
+    #[test]
     fn test_normalize_query_and_fragment_preserved() {
         assert_eq!(
             normalize_url("HTTPS://Example.com?foo=bar#section").unwrap(),
