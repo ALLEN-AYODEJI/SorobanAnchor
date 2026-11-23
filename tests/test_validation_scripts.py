@@ -523,6 +523,39 @@ enabled = true
             assert result.returncode == 0, f"Validator should accept TOML directly. stderr: {result.stderr}"
 
 
+class TestStrictValidatorFixtures:
+    """Tests for validate_config_strict.py against repository fixtures."""
+
+    def test_accepts_valid_fixture(self):
+        """Validator accepts the valid fiat-on-off-ramp.toml fixture."""
+        valid_fixture = Path(__file__).parent.parent / "configs" / "fiat-on-off-ramp.toml"
+        if not valid_fixture.exists():
+            pytest.skip(f"Valid fixture not found: {valid_fixture}")
+
+        result = subprocess.run(
+            [PYTHON_EXE, str(SCRIPT_DIR / "validate_config_strict.py"), str(valid_fixture), str(SCHEMA_FILE)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"Validator should accept {valid_fixture.name}. stderr: {result.stderr}"
+        )
+
+    def test_rejects_invalid_fixture(self):
+        """Validator rejects the intentionally invalid sample with a diagnostic."""
+        invalid_fixture = Path(__file__).parent.parent / "examples" / "invalid-config-sample.toml"
+        if not invalid_fixture.exists():
+            pytest.skip(f"Invalid fixture not found: {invalid_fixture}")
+
+        result = subprocess.run(
+            [PYTHON_EXE, str(SCRIPT_DIR / "validate_config_strict.py"), str(invalid_fixture), str(SCHEMA_FILE)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, "Validator should reject the invalid sample"
+        assert result.stderr.strip(), "Validator should emit a diagnostic on stderr for the invalid sample"
+
+
 class TestValidateWasmBuildScript:
     """Tests for validate_wasm_build.sh optional environment variable handling."""
 
