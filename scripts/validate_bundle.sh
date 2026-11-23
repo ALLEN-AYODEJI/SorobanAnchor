@@ -112,12 +112,22 @@ check_wasm
 check      "VERSION file"              "VERSION"
 check      "README"                    "README.md"
 check      "LICENSE"                   "LICENSE"
+check      "Checksums"                 "CHECKSUMS.sha256"
 check_json "Config schema"             "schemas/config_schema.json"
 
 # Example configs
 check_json "Fiat ramp config (JSON)"   "configs/fiat-on-off-ramp.json"
 check_json "Remittance config (JSON)"  "configs/remittance-anchor.json"
 check_json "Stablecoin config (JSON)"  "configs/stablecoin-issuer.json"
+
+# At least one example config must be present.
+if compgen -G "${BUNDLE_DIR}/configs/*.json" >/dev/null 2>&1; then
+    echo "  ✓ Example configs (at least one present)"
+    PASS=$((PASS + 1))
+else
+    echo "  ✗ Example configs — missing: configs/*.json"
+    FAIL=$((FAIL + 1))
+fi
 
 # Docs
 check      "Error codes doc"           "docs/error-codes.md"

@@ -93,6 +93,48 @@ for file in "$CONFIGS_DIR"/*.json "$CONFIGS_DIR"/*.toml; do
   fi
 done
 
+# ── strict validator self-check (positive + negative) ──────────────────────────
+
+if [ -f "$VALIDATOR_PY" ] && command -v python3 &>/dev/null; then
+  echo ""
+  echo "🧪 Strict validator self-check"
+
+  VALID_SAMPLE="$CONFIGS_DIR/fiat-on-off-ramp.toml"
+  INVALID_SAMPLE="$PROJECT_ROOT/examples/invalid-config-sample.toml"
+
+  if [ -f "$VALID_SAMPLE" ]; then
+    valid_json="$(toml_to_json "$VALID_SAMPLE")"
+    TMPFILES+=("$valid_json")
+    if python3 "$VALIDATOR_PY" "$valid_json" "$SCHEMA" >/dev/null 2>&1; then
+      echo "  ✅ valid sample accepted"
+    else
+      echo "  ❌ valid sample was rejected"
+      FAILED=1
+    fi
+  else
+    echo "  ⚠️  valid sample not found: $VALID_SAMPLE"
+  fi
+
+  if [ -f "$INVALID_SAMPLE" ]; then
+    invalid_json="$(toml_to_json "$INVALID_SAMPLE")"
+    TMPFILES+=("$invalid_json")
+    if python3 "$VALIDATOR_PY" "$invalid_json" "$SCHEMA" >/dev/null 2>&1; then
+      echo "  ❌ invalid sample was accepted"
+      FAILED=1
+    else
+      diag="$(python3 "$VALIDATOR_PY" "$invalid_json" "$SCHEMA" 2>&1 || true)"
+      if [ -n "$diag" ]; then
+        echo "  ✅ invalid sample rejected with diagnostic"
+      else
+        echo "  ❌ invalid sample rejected without diagnostic"
+        FAILED=1
+      fi
+    fi
+  else
+    echo "  ⚠️  invalid sample not found: $INVALID_SAMPLE"
+  fi
+fi
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
   echo "❌ One or more configs failed validation."

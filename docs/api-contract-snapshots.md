@@ -13,7 +13,8 @@ codes — are caught before a release ships.
 3. [Comparing snapshots](#3-comparing-snapshots)
 4. [Snapshot storage convention](#4-snapshot-storage-convention)
 5. [CI integration](#5-ci-integration)
-6. [What counts as a breaking change](#6-what-counts-as-a-breaking-change)
+6. [Reviewing a snapshot change](#6-reviewing-a-snapshot-change)
+7. [What counts as a breaking change](#7-what-counts-as-a-breaking-change)
 
 ---
 
@@ -201,7 +202,69 @@ changed. Additive changes always pass.
 
 ---
 
-## 6  What counts as a breaking change
+## 6  Reviewing a snapshot change
+
+Regenerating a snapshot rewrites the file in place, so a committed snapshot
+diff can hide an accidental public API change unless you inspect it. Always
+follow the generate-then-diff order below and review the result before
+committing.
+
+### Step 1 — Generate the snapshot for the current tree
+
+```bash
+./scripts/snapshot_api.sh
+# Writes: api_snapshots/anchorkit-<VERSION>.json
+```
+
+The version is read from `Cargo.toml`, so the output path is deterministic.
+
+### Step 2 — Diff against the baseline snapshot
+
+```bash
+./scripts/diff_api_snapshot.sh api_snapshots/anchorkit-<OLD>.json \
+                              api_snapshots/anchorkit-<NEW>.json
+```
+
+The script takes the old snapshot first and the new snapshot second. Its exit
+status is the review signal:
+
+| Exit status | Meaning |
+|-------------|---------|
+| `0` | No removed names found — additions only, non-breaking |
+| `1` | Removed names found — potentially breaking, review required |
+
+### Step 3 — Interpret the output
+
+The diff script prints two sections:
+
+- **Removed or changed items** (`-` lines): names present in the old snapshot
+  but missing from the new one. Each one is a candidate breaking change — a
+  removed function, type, trait, or error code.
+- **Added items** (`+` lines): names present only in the new snapshot. These
+  are additive and non-breaking.
+
+For anything listed under removed items, inspect the full snapshot with
+`git diff --no-index` (or `git diff` on the committed file) to see whether a
+signature, field, or error code changed rather than a whole item disappearing.
+
+### Step 4 — Classify the change
+
+- **Accidental change:** the removed or changed item was not intended. Do not
+  commit the regenerated snapshot. Fix the code so the public surface matches
+  the baseline, then regenerate and re-diff.
+- **Intentional change:** the public API change is deliberate. Confirm it
+  against section 7, note it in the changelog under `### Breaking Changes` if
+  it is breaking, and get the required maintainer approvals before committing
+  the snapshot.
+
+> **Do not commit a regenerated snapshot without reviewing the diff.** A
+> snapshot that is simply regenerated and committed will pass CI while silently
+> accepting whatever public API change produced it. The snapshot is only
+> trustworthy if the diff was read and the public API impact was understood.
+
+---
+
+## 7  What counts as a breaking change
 
 | Change | Breaking |
 |--------|---------|

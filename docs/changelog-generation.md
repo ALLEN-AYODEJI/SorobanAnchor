@@ -98,6 +98,17 @@ git cliff --output CHANGELOG.md
 
 ### Using the helper script
 
+`scripts/generate_changelog.sh` wraps `git-cliff` and applies the project's
+`cliff.toml` configuration (see below).
+
+#### Inputs
+
+| Input | Meaning |
+|-------|---------|
+| `<tag>` (optional positional argument) | The tag to label the generated section with. Defaults to `v<version>` read from `Cargo.toml`. |
+| `--dry-run` | Print the generated changelog to stdout and exit without writing any file. |
+| `--prepend` | Prepend the generated section to the existing `CHANGELOG.md` instead of overwriting it. |
+
 ```bash
 # Generate changelog for the next version (reads version from Cargo.toml)
 ./scripts/generate_changelog.sh
@@ -107,10 +118,30 @@ git cliff --output CHANGELOG.md
 
 # Preview without writing to file
 ./scripts/generate_changelog.sh --dry-run
+
+# Prepend the new section to the existing CHANGELOG.md
+./scripts/generate_changelog.sh --prepend
 ```
 
-The script wraps `git-cliff` and applies the project's `cliff.toml`
-configuration (see below).
+#### Source range
+
+The script invokes `git-cliff --unreleased`, so the generated section covers
+commits made since the most recent version tag (matching `tag_pattern` in
+`cliff.toml`) up to `HEAD`. It does not regenerate history for already-tagged
+releases.
+
+#### Output
+
+- **Default:** `CHANGELOG.md` at the repository root, overwritten with the
+  generated content.
+- **With `--prepend`:** the generated section is inserted at the top of the
+  existing `CHANGELOG.md`.
+- **With `--dry-run`:** nothing is written; the result is printed to stdout.
+
+The generated output is a **reviewable draft**, not a finished release note.
+Review it before committing (see [§5](#5-manual-editing)).
+
+#### Fallback when no version tags exist
 
 When the checkout has no version tags, the script uses the version from
 `Cargo.toml` as the fallback tag and reports that it is generating from the
@@ -146,6 +177,13 @@ writing `CHANGELOG.md`.
 - add API contract snapshot guide (#688)
 - add maintainer onboarding guide (#691)
 ```
+
+The `(#NNN)` suffixes above are the PR numbers that git-cliff derives from
+merge commits; the exact reference shown depends on how the commit was merged.
+Issue references such as `Closes #N` in a commit footer are not rewritten into
+a different format — they appear as written in the commit message. Treat the
+generated entries as a reviewable draft and adjust references by hand where
+needed (see [§5](#5-manual-editing)).
 
 ---
 
