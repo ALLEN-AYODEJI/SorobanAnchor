@@ -211,13 +211,196 @@ Both lines must have the same hash.
 
 ### Builds are not matching
 
-1. Confirm the same Rust toolchain version is used: `rustup show`.
-2. Set `SOURCE_DATE_EPOCH` to the same value in both builds.
-3. Run `cargo clean` between builds to eliminate stale incremental cache.
-4. Ensure `Cargo.lock` is identical in both build trees (it is committed to the
-   repository; do not run `cargo update` mid-comparison).
-5. Check that no `[patch]` entries in `Cargo.toml` point to local paths that
-   differ between environments.
+When two builds of the same source produce different output, follow this
+diagnostic sequence:
+
+#### 1. Verify exact toolchain version
+
+Rust compiler versions can produce different output even for the same source.
+
+```bash
+# Check active toolchain
+rustup show
+
+# Expected output should match:
+#   stable-x86_64-unknown-linux-gnu (default)
+#   rustc 1.80.0 (051478957 2024-07-21)
+
+# If versions differ, install the exact version from the provenance record
+rustup install 1.80.0
+rustup default 1.80.0
+```
+
+**What to compare:** Match the `rustc` version digit-for-digit, including the
+commit hash in parentheses. Minor version differences (`1.80.0` vs `1.80.1`)
+can cause output differences.
+
+#### 2. Confirm SOURCE_DATE_EPOCH is set identically
+
+Build timestamps can leak into the output if `SOURCE_DATE_EPOCH` is unset or
+differs between builds.
+
+```bash
+# Check if set
+echo $SOURCE_DATE_EPOCH
+
+# Expected: 1717200000 (or the value from the provenance record)
+
+# Set before building
+export SOURCE_DATE_EPOCH=1717200000
+cargo clean
+cargo build --release --target wasm32-unknown-unknown \
+    --no-default-features --features wasm
+```
+
+**What to compare:** The `SOURCE_DATE_EPOCH` value must be **exactly the
+same** in both builds. Even a 1-second difference can change the output.
+
+#### 3. Ensure Cargo.lock is identical
+
+Dependency resolution can vary if `Cargo.lock` differs or is missing.
+
+```bash
+# Check if Cargo.lock is committed
+git status Cargo.lock
+
+# Expected: no changes (file should be tracked and unmodified)
+
+# If modified, reset to the source revision
+git checkout HEAD -- Cargo.lock
+
+# DO NOT run `cargo update` mid-comparison — it changes Cargo.lock
+```
+
+**What to compare:** Compute the SHA-256 hash of `Cargo.lock` in both build
+trees:
+
+```bash
+sha256sum Cargo.lock
+```
+
+Both must match. If they differ, one build tree has stale or updated
+dependencies.
+
+#### 4. Eliminate incremental compilation cache
+
+Stale incremental build cache can cause non-deterministic output.
+
+```bash
+# Clean all build artifacts
+cargo clean
+
+# Rebuild from scratch
+cargo build --release --target wasm32-unknown-unknown \
+    --no-default-features --features wasm
+```
+
+**What to compare:** Always run `cargo clean` before each reproduction
+attempt. If builds match after a clean but not before, incremental cache was
+the culprit.
+
+#### 5. Check for local path patches in Cargo.toml
+
+If `Cargo.toml` contains `[patch]` entries pointing to local directories, the
+same paths must exist in both build environments.
+
+```bash
+# Search for local patches
+grep -A 5 '\[patch' Cargo.toml
+
+# Example problematic entry:
+#   [patch.crates-io]
+#   soroban-sdk = { path = "../soroban-sdk" }
+```
+
+**What to compare:** Inspect the contents of any patched dependencies. If the
+local directory differs between environments, the output will differ.
+
+**How to fix:** Use published crate versions or Git URLs instead of local
+paths for reproducibility across environments.
+
+#### 6. Validate no environment-specific features
+
+Some crates enable different features based on environment variables or target
+platform detection.
+
+```bash
+# Explicitly disable default features
+cargo build --release --target wasm32-unknown-unknown \
+    --no-default-features --features wasm
+
+# Check resolved features
+cargo tree --target wasm32-unknown-unknown --no-default-features \
+    --features wasm --edges features
+```
+
+**What to compare:** The feature tree must be identical in both builds. If a
+dependency enables different features, the output will differ.
+
+#### 7. Compare pre-optimization WASM only
+
+If raw WASM hashes match but `wasm-opt` outputs differ, the problem is in the
+optimizer, not the build.
+
+```bash
+# Hash before optimization
+sha256sum target/wasm32-unknown-unknown/release/anchorkit.wasm
+
+# This is the authoritative reproducibility check
+```
+
+**What to compare:** Pre-optimization WASM hash equality is the primary
+reproducibility signal. Post-optimization differences are a warning, not a
+failure.
+
+#### 8. Check binaryen version if wasm-opt outputs differ
+
+Different `wasm-opt` versions can produce different output for the same input.
+
+```bash
+# Check wasm-opt version
+wasm-opt --version
+
+# Expected output (example):
+#   wasm-opt version 116 (version_116)
+```
+
+**What to compare:** Install the same `wasm-opt` version in both environments:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install binaryen=1.38.28-1
+
+# Or download a specific release from:
+# https://github.com/WebAssembly/binaryen/releases
+```
+
+**Verdict:** If pre-opt hashes match but post-opt hashes differ due to
+`wasm-opt` version mismatch, the build is **still reproducible**. The
+optimizer difference is environmental, not a source code difference.
+
+---
+
+### Diagnostic flowchart
+
+```
+START: Two builds produce different output
+
+1. Toolchain version differs? → Install exact version → Retry
+2. SOURCE_DATE_EPOCH differs? → Set to same value → Retry
+3. Cargo.lock differs?        → Reset from git      → Retry
+4. Incremental cache present? → cargo clean         → Retry
+5. Local patches differ?      → Use published crates → Retry
+6. Feature tree differs?      → Check cargo tree    → Retry
+7. Pre-opt WASM matches?      → YES: wasm-opt difference (OK)
+                              → NO: Continue investigation
+
+If all steps pass and pre-opt WASM still differs:
+→ Report to maintainers with full environment details
+→ Include: rustc --version, uname -a, Cargo.lock hash, build command
+```
+
+---
 
 ### Checksum file not found
 
