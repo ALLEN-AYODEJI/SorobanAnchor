@@ -94,6 +94,61 @@ In repository **Settings → Secrets and variables → Actions**:
 > Actions secrets or a secrets manager.  The `ANCHOR_ADMIN_SECRET` value used
 > in CI should be a dedicated testnet key with no mainnet funds.
 
+## Synthetic Probe Limitations
+
+The synthetic probe runner (`synthetic_probe.rs`) is a lightweight reachability
+check, **not** a comprehensive service monitor.  A passing probe means a single
+narrow path responded within its timeout; it makes **no claim about production
+availability**, correctness of business logic, or end-to-end anchor operation.
+
+### What current probes exercise
+
+| Probe | What it checks |
+|-------|----------------|
+| `Ping` | Basic connectivity to the configured endpoint and round-trip latency |
+| `StellarToml` | The `stellar.toml` document can be fetched and parsed |
+| `Sep6Info` | The SEP-6 `/info` response has the expected shape |
+| `Custom` | An operator-supplied label, used for ad-hoc checks |
+
+Each probe returns a `ProbeOutcome`:
+
+- `Success` — responded within `latency_threshold_ms`.
+- `SlowSuccess` — responded, but slower than `latency_threshold_ms`.
+- `Failure` — errored or returned an unexpected result.
+- `SlowFailure` — errored or returned an unexpected result after exceeding the
+  threshold.
+
+Every probe is bounded by `MAX_PROBE_TIMEOUT_MS`; a probe that does not complete
+within that bound is treated as a failure rather than hanging the runner.
+
+### Required environment assumptions
+
+- **Network access** to each configured anchor endpoint is required for live
+  probes.  Without it, probes report `Failure`/`SlowFailure`.
+- **Injected `probe_fn`** — local tests substitute a probe function, so the
+  runner's scheduling, thresholding, and outcome classification are testable
+  without any live network.
+- **Timeout thresholds** — `latency_threshold_ms` and `MAX_PROBE_TIMEOUT_MS`
+  shape the outcome classification; results are only meaningful relative to
+  these configured values.
+
+### Where local simulation ends
+
+Local tests exercise the runner logic (probe dispatch, outcome classification,
+threshold handling) via the injected `probe_fn`.  They do **not** exercise real
+network behavior.  Verifying actual reachability requires the opt-in live
+environment described above; secrets are supplied only through the safe
+environment configuration (`SOROBAN_ANCHOR_INTEGRATION`, `ANCHOR_CONTRACT_ID`,
+`ANCHOR_ADMIN_SECRET`, `STELLAR_RPC_URL`) and are never printed.
+
+### Known blind spots
+
+- Probes cover **only the configured endpoints**, not the full set of services
+  an anchor depends on.
+- A passing probe does **not** verify business logic, transaction correctness,
+  or data integrity.
+- Probe results do **not** establish overall service availability or uptime.
+
 ## Prerequisites
 
 The `stellar` CLI must be available in `PATH` when running locally.  Install it

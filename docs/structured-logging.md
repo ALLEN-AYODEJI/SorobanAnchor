@@ -126,6 +126,75 @@ A webhook delivery that exhausts two attempts and dead-letters:
 {"ts":1712345679,"seq":4,"level":"warn","event":"webhook.dlq_entry_added","fields":{"dlq_key":"anchor-1","dlq_depth":1}}
 ```
 
+## Request Correlation Troubleshooting
+
+When an operation cannot be found in the logs, or an ID looks wrong, work
+through the steps below in order. Only the identifiers listed here are
+supported; do not invent header or field names.
+
+### Supported identifiers
+
+From `trace_context.rs` (W3C-style trace context):
+
+| Kind | Name | Notes |
+|------|------|-------|
+| Header | `traceparent` | W3C `version-trace_id-span_id-flags` form. |
+| Header | `X-Trace-Id` | Trace identifier on its own. |
+| Header | `X-Span-Id` | Span identifier on its own. |
+| Field | `trace_id` | Trace identifier carried in log fields. |
+| Field | `span_id` | Span identifier for the current operation. |
+| Field | `parent_span_id` | Span identifier of the caller, when known. |
+
+From `distributed_correlation.rs` (service-to-service correlation):
+
+| Kind | Name | Notes |
+|------|------|-------|
+| Header | `X-Correlation-Id` | End-to-end correlation identifier. |
+| Header | `X-Origin-Service` | Service that started the request chain. |
+| Header | `X-Hop-Count` | Number of service hops so far. |
+| Header | `X-Baggage` | Baggage key/value pairs. |
+| Field | `correlation_id` | Correlation identifier carried in log fields. |
+| Field | `origin_service` | Service that started the request chain. |
+| Field | `current_service` | Service emitting the log line. |
+| Field | `hop_count` | Number of service hops so far. |
+| Field | `baggage` | Baggage key/value pairs. |
+
+### Procedure
+
+1. **Confirm the ID was created at ingress.** The root context is created at
+   the entry point — `root_from_seed(...)` or `TraceContext::new(...)` for
+   trace context, `CorrelationContext::new(...)` for correlation. Check that
+   the first log line for the request carries the resulting `trace_id` /
+   `span_id` (or `correlation_id`). If the first line has no ID, the context
+   was not created or not attached before logging began.
+2. **Confirm propagation.** For each downstream operation, check that child
+   spans keep the same `trace_id` as the root and record a `parent_span_id`
+   pointing at the caller's `span_id`. For correlation, check that
+   `correlation_id` and `origin_service` are unchanged across services and
+   that `hop_count` increments by one per service hop. A changed
+   `trace_id`/`correlation_id`, a missing `parent_span_id`, or a `hop_count`
+   that does not advance indicates a propagation break at that boundary.
+3. **Filter the logs.** Logs are JSON lines (see the schema above), so filter
+   on the structured fields rather than free text — for example by `event`,
+   `trace_id`, `span_id`, or `correlation_id`. Filtering on `event` first
+   narrows the workflow, then on the identifier to follow one request.
+
+### Warnings
+
+- **Never log payload secrets or full request bodies.** Log identifiers and
+  metadata only; `fields` must not contain credentials, tokens, signatures, or
+  raw payloads.
+- **Absence of trace data is inconclusive.** A missing `trace_id`,
+  `correlation_id`, or log line does **not** prove the operation did not
+  occur. Logs may be filtered by level, evicted from the bounded buffer (see
+  `logger.dropped()`), never shipped by the host, or emitted by a component
+  that does not propagate context. Confirm behaviour through other observable
+  evidence before concluding an operation was skipped.
+
+The correlation tests are the source of truth for these identifiers and their
+propagation rules: `tests/request_id_tests.rs`,
+`tests/trace_propagation_tests.rs`, and `tests/tracing_span_tests.rs`.
+
 ## Validation
 
 - Unit tests in `src/structured_log.rs` cover the JSON envelope, escaping,
