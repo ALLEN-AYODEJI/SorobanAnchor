@@ -523,6 +523,15 @@ AnchorKit health monitoring distinguishes between two concepts that serve differ
 - K8s `livenessProbe`: Query health endpoint — restart if unresponsive
 - Monitoring dashboards: Use `build_health_report()` for composite scores and trend analysis
 
+For a precise per-query breakdown of what each on-chain status actually
+measures — and the checks it does **not** perform — see
+[Health Checks and Readiness](./health-checks.md).  None of those queries imply
+external reachability: a local `Healthy` or `deposit_ready` signal is a
+statement about on-chain contract state, not proof that an anchor endpoint is
+up.  For the cumulative health counters, zero-event state, and reset behavior,
+see [Health Metrics Reference](./health-metrics.md).  For alert deduplication
+and suppression semantics, see [Alert Deduplication and Suppression](./alert-deduplication.md).
+
 ### Issue: Deployment Fails with "Invalid WASM"
 
 **Solution**:
