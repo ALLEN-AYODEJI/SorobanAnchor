@@ -314,6 +314,36 @@ fn vendor_status_raw_preserved_after_resolution() {
     assert_eq!(entry.vendor_status, "ACH_PROCESSING");
 }
 
+// ── Malformed / unrecognized vendor status fixture ───────────────────────────
+
+/// Minimal, synthetic fixture representing an anchor that returned an
+/// unfamiliar vendor status. Contains no private data.
+fn make_raw_transaction_with_status(status: &str) -> RawTransactionResponse {
+    RawTransactionResponse {
+        transaction_id: "fixture-txn-unknown-status".into(),
+        kind: Some("deposit".into()),
+        status: status.into(),
+        amount_in: Some(100),
+        amount_out: None,
+        amount_fee: None,
+        message: None,
+    }
+}
+
+#[test]
+fn unrecognized_vendor_status_falls_back_to_error_and_unknown_category() {
+    // An unfamiliar vendor value must not be mapped to a terminal success
+    // state; per docs/sep6-status-normalization.md it falls back to Error
+    // (StatusCategory::Unknown) while preserving the raw status text.
+    let raw_status = "pending_vendor_compliance_review";
+    let raw = make_raw_transaction_with_status(raw_status);
+
+    let resp = fetch_transaction_status(raw).unwrap();
+    assert_eq!(resp.status, TransactionStatus::Error);
+    assert_eq!(resp.status.classify(), StatusCategory::Unknown);
+    assert_eq!(resp.status.as_str(), raw_status);
+}
+
 // ── Tie-breaker: vendor map registered canonical is used in fetch_transaction_status ──
 
 #[test]

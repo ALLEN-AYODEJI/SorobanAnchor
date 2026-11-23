@@ -299,6 +299,43 @@ fn schema_rejects_unknown_top_level_property() {
 }
 
 #[test]
+fn schema_rejects_unknown_nested_property() {
+    // `contract` declares additionalProperties: false; an unknown key inside
+    // this nested object must be rejected (distinct from the top-level typo
+    // test above, which targets the root object).
+    let bad = r#"{
+  "contract": {
+    "name": "my-anchor",
+    "version": "1.0.0",
+    "network": "stellar-testnet",
+    "unexpected_nested_key": "should_fail"
+  },
+  "attestors": {
+    "registry": [{
+      "name": "kyc-issuer",
+      "address": "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ",
+      "role": "kyc-issuer",
+      "enabled": true
+    }]
+  }
+}"#;
+    let result = parse_runtime_config_str(bad, ConfigFormat::Json);
+    assert!(
+        result.is_err(),
+        "unknown nested property under 'contract' should be rejected by schema"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("unexpected_nested_key"),
+        "error should identify the offending nested field, got: {err}"
+    );
+    assert!(
+        err.contains("contract"),
+        "error should reference the containing nested object path, got: {err}"
+    );
+}
+
+#[test]
 fn valid_config_still_parses_through_schema_path() {
     let good = r#"{
   "contract": { "name": "my-anchor", "version": "1.0.0", "network": "stellar-testnet" },

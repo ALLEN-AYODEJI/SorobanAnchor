@@ -572,4 +572,51 @@ mod routing_tie_break_tests {
             }
         }
     }
+
+    /// Equal-score candidates must yield the same externally observable
+    /// selection on every run. The observed tie-break rule is positional in
+    /// the caller-supplied slice: min-based strategies keep the first equal
+    /// candidate, max-based strategies keep the last. Only the selected
+    /// quote's public fields and the filled order are asserted here.
+    #[test]
+    fn equal_score_candidates_stable_selection_across_runs() {
+        // Identical scores: same rate, fee, reputation and settlement time.
+        let a = make_candidate(1, "anchor-a");
+        let b = make_candidate(2, "anchor-b");
+        assert_eq!(a.rate, b.rate);
+        assert_eq!(a.fee_percentage, b.fee_percentage);
+        assert_eq!(a.reputation_score, b.reputation_score);
+        assert_eq!(a.average_settlement_time, b.average_settlement_time);
+
+        for strategy in ROUTING_STRATEGIES {
+            let expected = &[&a, &b][expected_position(strategy)];
+            let mut first: Option<(u64, String, Vec<u64>)> = None;
+            for _ in 0..5 {
+                let request = AssetPairRequest {
+                    base_asset: "XLM".into(),
+                    quote_asset: "USDC".into(),
+                    amount: 100,
+                    strategy: strategy.into(),
+                    min_reputation: 0,
+                };
+                let result = route_multi_asset(
+                    &[request],
+                    &[a.clone(), b.clone()],
+                    1_000,
+                )
+                .expect("valid request");
+                let filled_ids: Vec<u64> = result.filled.iter().map(|q| q.quote_id).collect();
+                let selected = result.filled[0].clone();
+                let observed = (selected.quote_id, selected.anchor.clone(), filled_ids);
+                match &first {
+                    None => {
+                        assert_eq!(observed.0, expected.quote_id, "{strategy} selected quote");
+                        assert_eq!(observed.1, expected.anchor, "{strategy} selected anchor");
+                        first = Some(observed);
+                    }
+                    Some(prev) => assert_eq!(&observed, prev, "{strategy} must be stable"),
+                }
+            }
+        }
+    }
 }

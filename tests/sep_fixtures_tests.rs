@@ -371,6 +371,37 @@ mod sep_fixtures_tests {
         assert!(result.is_ok() || result.is_err());
     }
 
+    // ── Malformed-input error category tests (#1466) ──────────────────────
+    //
+    // These assert the stable public error code/category (see
+    // docs/error-codes.md) rather than brittle full error strings.
+
+    #[test]
+    fn test_sep6_deposit_missing_transaction_id_errors_with_missing_field() {
+        let mut raw = mock_deposit_response_minimal();
+        raw.id = String::new();
+        let err = initiate_deposit(raw).expect_err("empty transaction id must be rejected");
+        assert_eq!(err.code(), anchorkit::ErrorCode::MissingField);
+    }
+
+    #[test]
+    fn test_sep24_transaction_invalid_status_errors_with_invalid_status() {
+        let mut raw = mock_sep24_transaction_minimal();
+        raw.status = "not_a_real_status".to_string();
+        let err = sep24::fetch_sep24_transaction_status(raw)
+            .expect_err("unknown status must be rejected");
+        assert_eq!(err.code(), anchorkit::ErrorCode::InvalidStatus);
+    }
+
+    #[test]
+    fn test_sep38_firm_quote_invalid_price_errors_with_invalid_amount() {
+        let mut raw = mock_firm_quote_minimal();
+        raw.price = "not-a-number".to_string();
+        let err = sep38::request_firm_quote(raw, MOCK_EXPIRES_AT - 1000)
+            .expect_err("non-numeric price must be rejected");
+        assert_eq!(err.code(), anchorkit::ErrorCode::InvalidAmount);
+    }
+
     #[test]
     fn test_sep38_firm_quote_large_amounts() {
         let raw = mock_firm_quote_large_amounts();
