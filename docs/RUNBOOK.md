@@ -540,6 +540,86 @@ AnchorKit health monitoring distinguishes between two concepts that serve differ
 5. For KYC operations, ensure the caller has `AdminRole::KycAdmin` (0) or `AdminCapability::ManageKyc` (4)
 6. All authorization failures now return `Unauthorized` (code 28) — see the [Contract Functions](./CONTRACT_FUNCTIONS.md) error codes table
 
+### Rate-limit incidents
+
+Use this sequence when clients report throttling or when rate-limit behaviour
+looks wrong. Start with read-only diagnostics; do not change policy until the
+evidence shows the policy itself is wrong.
+
+#### 1. Identify throttling and classify it
+
+A rate-limited call fails with `RateLimitExceeded` (see the error codes table in
+[Contract Functions](./CONTRACT_FUNCTIONS.md)). Confirm the error code before
+doing anything else — do not assume throttling from a generic failure.
+
+- **Expected rejection:** the caller is a legitimate client that exceeded its
+  configured `max_submissions` within `window_length`. The limiter state matches
+  the configured policy. No action is required beyond telling the client to
+  back off until the window resets; retrying before the window resets will keep
+  failing (the default `is_retryable` excludes `RateLimitExceeded`).
+- **System failure:** any other error, a missing or unreadable config, or
+  limiter state that does not match the configured policy (e.g. a counter that
+  exceeds `max_submissions`, a window that never resets, or a tier resolving to
+  a different policy than intended). Treat this as a bug/incident, not as a
+  reason to raise limits.
+
+#### 2. Read the current limiter state (read-only)
+
+All of these are read-only queries; run them before considering any change:
+
+```bash
+# Current limiter state for an address (counter and window)
+soroban contract invoke --id <contract-id> --network $SOROBAN_NETWORK \
+  -- get_state --address <client-address>
+
+# Global default policy
+soroban contract invoke --id <contract-id> --network $SOROBAN_NETWORK \
+  -- get_rate_limit_config
+
+# Role-level override (if any)
+soroban contract invoke --id <contract-id> --network $SOROBAN_NETWORK \
+  -- get_role_rate_limit --role <role>
+
+# Address-level override (if any)
+soroban contract invoke --id <contract-id> --network $SOROBAN_NETWORK \
+  -- get_address_rate_limit --address <client-address>
+```
+
+#### 3. Inspect the configured window and resolution order
+
+Each policy is defined by `max_submissions` (allowed calls per window) and
+`window_length` (window size in ledgers/seconds, per the limiter config). The
+effective policy for a call is resolved in this order, most specific first:
+
+1. **Address tier** — `get_address_rate_limit` for the caller, if set.
+2. **Role tier** — `get_role_rate_limit` for the caller's role, if set.
+3. **Global tier** — `get_rate_limit_config`, the default.
+
+Compare the effective policy against the observed `get_state` counter. If the
+counter is within `max_submissions` for the current window, the rejection is
+expected. If it is not, or the resolved tier is not the one you intended,
+escalate as a system failure.
+
+#### 4. Decide whether a policy change is appropriate
+
+Any policy change requires explicit authority: the contract admin, or a
+delegate holding `AdminCapability::SetRateLimits` (code 7). Check first:
+
+```bash
+soroban contract invoke --id <contract-id> --network $SOROBAN_NETWORK \
+  -- has_capability --address <delegate-address> --capability 7
+```
+
+There is **no blanket recommendation to raise limits**. Raising limits is only
+appropriate after evidence that the current policy is wrong for a specific
+tenant or attestor — for example, a documented workload that legitimately
+exceeds the configured window. Even then, prefer a scoped override (address or
+role tier) over changing the global default, and record the reason. See
+`examples/rate_limit_override_example.sh` for a scoped override pattern.
+
+If the evidence does not show a policy error, do not change limits; the
+rejection is working as designed.
+
 ### Issue: Service State Not Persisting
 
 **Solution**:
