@@ -380,8 +380,84 @@ cargo test --release
 - Verify `wasm` feature is self-contained (no std deps)
 - Update this document with any new feature combinations
 
+## CI Overview
+
+CI verifies more than one target. The table below maps each workflow job to its purpose so contributors know which job covers native behavior and which covers WASM compatibility. Job names are taken from `.github/workflows/ci.yml` and `.github/workflows/feature-matrix.yml`.
+
+### `.github/workflows/ci.yml`
+
+| Job | Purpose | Target |
+|---|---|---|
+| `ci` ("Build, Lint & Unit Tests") | Formatting, clippy, and unit tests | Native (`std`) |
+| `integration` | Integration test suite | Native (`std`) |
+| `stress` | Stress-test suite (`stress-tests` feature) | Native (`std`) |
+| `benchmarks` | Benchmark compilation/run | Native (`std`) |
+| `live-smoke` | Live smoke tests against a network | Native (`std`) |
+
+### `.github/workflows/feature-matrix.yml`
+
+| Job | Purpose | Target |
+|---|---|---|
+| `native-std` | Build and test with default `std` features | Native |
+| `wasm-no-std` | Build the contract for `wasm32-unknown-unknown` with `--no-default-features --features wasm` | WASM |
+| `no-std-check` | Verify the library compiles without `std` | WASM/no_std |
+| `mock-only` | Test with `mock-only` (no `std`) | Native |
+| `std-mock-only` | Test with `std,mock-only` | Native |
+| `clippy-matrix` | Clippy across the feature matrix | Native |
+| `integration-harness` | Integration harness across features | Native |
+| `stress-tests` | Stress-test suite across features | Native |
+| `build-matrix-script` | Runs `./scripts/test_build_matrix.sh` | Native + WASM |
+| `feature-gate-tests` | Runs `./scripts/test-feature-gates.sh` | Native |
+| `matrix-summary` | Aggregates feature-matrix results | — |
+
+**Native behavior** is covered by `ci`, `integration`, `stress`, `benchmarks`, `live-smoke`, and the native feature-matrix jobs (`native-std`, `mock-only`, `std-mock-only`, `clippy-matrix`, `integration-harness`, `stress-tests`, `feature-gate-tests`).
+
+**WASM compatibility** is covered by `wasm-no-std` and `no-std-check`, plus the WASM portion of `build-matrix-script`.
+
+**Required checks:** the `ci` job and the feature-matrix jobs (`native-std`, `wasm-no-std`, `no-std-check`, `matrix-summary`) are the required status checks for merging. `live-smoke` requires network access and is not required for offline contributors.
+
+## Reproducing a CI Failure Locally
+
+The table below maps common CI failure categories to the local command that reproduces them. Commands are cross-checked against the workflow YAML and scripts.
+
+| Failure category | Local command | Prerequisites / notes |
+|---|---|---|
+| Formatting | `cargo fmt --all -- --check` | Stable toolchain |
+| Clippy | `cargo clippy -- -D warnings` | Stable toolchain |
+| Unit tests | `cargo test` | Stable toolchain |
+| Integration tests | `cargo test --test integration` | Stable toolchain |
+| Feature matrix | `./scripts/test_feature_matrix.sh` | Stable toolchain |
+| Feature gates | `./scripts/test-feature-gates.sh` | Stable toolchain |
+| WASM compilation | `rustup target add wasm32-unknown-unknown` then `./scripts/validate_wasm_build.sh` | WASM target required |
+| no_std compliance | `./scripts/validate_no_std_compliance.sh` | Stable toolchain |
+| Full build matrix | `./scripts/test_build_matrix.sh` | WASM target required |
+| Live smoke tests | `cargo test --features live-smoke` | **Network-dependent**; requires RPC endpoint and funded account |
+
+Notes:
+- `rustup target add wasm32-unknown-unknown` is a one-time setup step for any WASM-related command.
+- Commands marked **network-dependent** cannot run offline; all others run fully offline once dependencies are vendored/cached.
+- No credentials are required for any command in this table; the live smoke tests read configuration from the environment and are not part of the required checks.
+
+## Feature Compatibility Matrix
+
+The table below summarizes how features compose, based on `Cargo.toml` and the feature-matrix scripts. "Supported" means the combination is exercised in CI or the matrix scripts; "Compilable" means it builds but is not guaranteed by CI. See [ADR-0002](adr/0002-feature-flags.md) for the rationale.
+
+| Combination | Status | Notes |
+|---|---|---|
+| default (`std`) | Supported | Default features; tested by `native-std` |
+| `std,mock-only` | Supported | Tested by `std-mock-only` |
+| `std,stress-tests` | Supported | Tested by `stress-tests` |
+| `mock-only` (no `std`) | Supported | Tested by `mock-only` |
+| `stress-tests` (no `std`) | Compilable | Builds but not guaranteed by CI |
+| `wasm` with `--no-default-features` | Supported | Tested by `wasm-no-std` |
+| empty (`--no-default-features`) | Compilable | Bare library build; not guaranteed by CI |
+| `wasm` + `std` | **Unsupported** | Mutually exclusive; will not compile |
+
+No default feature is changed by this document; `default = ["std"]` remains in effect.
+
 ## See Also
 
+- [ADR-0002: Feature Flags](adr/0002-feature-flags.md)
 - [Cargo Features Documentation](https://doc.rust-lang.org/cargo/reference/features.html)
 - [Soroban SDK Rust Docs](https://docs.rs/soroban-sdk/)
 - [Stellar Ecosystem Proposals (SEPs)](https://github.com/stellar/stellar-protocol/tree/master/ecosystem)
