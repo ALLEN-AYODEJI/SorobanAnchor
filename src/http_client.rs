@@ -655,6 +655,17 @@ where
 /// | `read_timeout_secs`    | Intended read budget (informational; not applied by reqwest 0.12 blocking) | 30 s |
 /// | `total_timeout_secs`   | Total wall-clock budget (connect + read + transfer) | 60 s |
 ///
+/// The fields are not interchangeable:
+///
+/// * `connect_timeout_secs` is applied by `build_client_with_policy` only.
+/// * `total_timeout_secs` is applied by `build_client_with_policy` as the
+///   whole-request budget for connect, send, and receive.
+/// * `read_timeout_secs` is currently stored and documented, but it is not
+///   passed to `reqwest 0.12` by the blocking client builder.
+///
+/// A timeout is a local transport outcome. It does not prove that the anchor
+/// received the request or rejected it; compare HTTP status codes separately.
+///
 /// # Examples
 ///
 /// ```rust
@@ -670,11 +681,14 @@ where
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConnectionPolicy {
-    /// Maximum time in seconds to wait for the TCP connection + TLS handshake.
-    /// Use `0` to rely on the OS default (not recommended in production).
+    /// Maximum time in seconds to wait for the TCP connection and TLS handshake
+    /// when `build_client_with_policy` constructs the blocking client.
+    /// Use `0` to disable this policy field.
     pub connect_timeout_secs: u64,
-    /// Maximum time in seconds to wait for the first byte of the response after
-    /// the request has been sent. Use `0` for no limit.
+    /// Informational read budget in seconds. It is currently not applied by
+    /// `build_client_with_policy` because the reqwest 0.12 blocking client does
+    /// not expose this separate phase. `total_timeout_secs` is the applied
+    /// whole-request cap.
     pub read_timeout_secs: u64,
     /// Total wall-clock budget in seconds for the entire request lifecycle
     /// (connect + send + receive). Use `0` for no limit.

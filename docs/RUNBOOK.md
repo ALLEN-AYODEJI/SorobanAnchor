@@ -531,6 +531,12 @@ statement about on-chain contract state, not proof that an anchor endpoint is
 up.  For the cumulative health counters, zero-event state, and reset behavior,
 see [Health Metrics Reference](./health-metrics.md).  For alert deduplication
 and suppression semantics, see [Alert Deduplication and Suppression](./alert-deduplication.md).
+For outbound HTTP, connection, and webhook timeout semantics, see
+[Connection-Policy and Webhook Timeout Semantics](./connection-policy-timeouts.md).
+For transport versus HTTP response retry classification, see
+[Transport versus HTTP Retry Classification](./transport-http-retry-classification.md).
+For configured destination selection, fallback behavior, and routing-failure
+visibility, see [Alert Route Selection and Failure Visibility](./alert-routing.md).
 
 ### Issue: Deployment Fails with "Invalid WASM"
 

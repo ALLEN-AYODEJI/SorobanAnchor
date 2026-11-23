@@ -33,6 +33,9 @@ version, whichever format you prefer.
 | `monitoring` | Metrics, operation logging, and alert definitions | [`remittance-anchor.toml`](../configs/remittance-anchor.toml) |
 | `proxy` | Outbound proxy settings | No tracked example yet. Use the schema directly. |
 
+Alert routing behavior for `monitoring.alerts` is documented in
+[Alert Route Selection and Failure Visibility](./alert-routing.md).
+
 Not every example uses every section. `remittance` appears only in the
 remittance sample, and `stablecoin` appears only in the stablecoin sample.
 Every tracked sample includes `contract`, `attestors`, `sessions`,
@@ -41,6 +44,9 @@ sample includes `proxy`.
 
 If a section you need is not listed here, check `config_schema.json` first.
 The schema is authoritative, and this index does not list every field.
+
+For the meaning and application sites of outbound connection and webhook
+timeouts, see [Connection-Policy and Webhook Timeout Semantics](./connection-policy-timeouts.md).
 
 ---
 
