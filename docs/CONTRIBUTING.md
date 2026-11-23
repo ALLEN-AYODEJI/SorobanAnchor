@@ -155,6 +155,35 @@ Or use the Makefile:
 make lint
 ```
 
+## Documentation Validation
+
+After editing documentation files, validate them with the docs validation script:
+
+```bash
+bash scripts/validate-docs.sh
+```
+
+This script checks:
+- **Markdown lint** — heading hierarchy, code blocks, formatting via markdownlint-cli
+- **Broken internal links** — relative links between docs
+- **Heading consistency** — duplicate or malformed top-level headings
+- **Command example hygiene** — bare `cargo`, `make`, and shell commands
+- **Stale placeholder text** — TODO / FIXME / TBD / `<YOUR_` patterns
+
+The script runs from the repository root and validates all files in `docs/` plus `README.md`. To auto-fix markdownlint issues where possible:
+
+```bash
+bash scripts/validate-docs.sh --fix
+```
+
+To check a single file:
+
+```bash
+bash scripts/validate-docs.sh --file docs/YOUR_DOC.md
+```
+
+This same validation runs in CI under the "Documentation Lint" job in `.github/workflows/code-quality.yml`.
+
 ## Documentation Standards
 
 All public functions and types should have doc comments:

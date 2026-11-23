@@ -211,7 +211,7 @@ Other scenario walkthroughs live in [`examples/`](examples/):
 | `config_hot_reload_example.rs` | Reloading runtime config without restarting the process |
 | `credential_management.sh` | Encrypted keystore vs. env var vs. keypair file |
 | `mock_mode_example.sh` | Testing CLI flows without a live anchor |
-| [`offline_mode_example.sh`](examples/offline_mode_example.sh) | Config validation and workflow simulation with no network |
+| [`offline_mode_example.sh`](examples/offline_mode_example.sh) | Config validation and simulated workflows without network access |
 | `anchor_info_discovery.sh` | Fetching and interpreting a `stellar.toml` |
 | `kyc_workflow.sh` | KYC-gated attestation flow |
 | `role_usage_example.sh` | Admin roles and capability delegation |
