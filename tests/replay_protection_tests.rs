@@ -97,6 +97,38 @@ mod replay_protection_tests {
     }
 
     // -----------------------------------------------------------------------
+    // Minimal duplicate regression: same eligible request twice is rejected
+    // and deduplication state records exactly one entry.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_duplicate_submission_rejected_and_count_stays_one() {
+        let env = make_env();
+        let (client, _, issuer, subject) = setup(&env);
+
+        let hash = payload(&env, 0x77);
+        let ts = 1_000_001u64;
+
+        // First submission is eligible and succeeds.
+        let first_id = client.submit_attestation(&issuer, &subject, &ts, &hash, &sig(&env));
+        assert_eq!(first_id, 0);
+
+        // Second submission of the identical request must be rejected.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.submit_attestation(&issuer, &subject, &ts, &hash, &sig(&env));
+        }));
+        assert!(result.is_err(), "Duplicate submission should be rejected");
+
+        // Deduplication state: exactly one replay recorded for this id.
+        let replayed_count = client.get_replay_count_for_id(&hash);
+        assert_eq!(replayed_count, 1);
+
+        // The original attestation is still retrievable with its timestamp.
+        let stored_ts = client.get_attestation_by_hash(&issuer, &hash);
+        assert_eq!(stored_ts, ts);
+    }
+
+    // -----------------------------------------------------------------------
     // Different payload hash from same issuer is accepted
     // -----------------------------------------------------------------------
 

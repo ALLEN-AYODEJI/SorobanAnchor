@@ -763,6 +763,35 @@ mod session_boundary_tests {
 
     /// Expiry policy: a session is usable while `now <= created_at + ttl` and
     /// rejected with `SessionExpired` once `now > created_at + ttl`.
+    ///
+    /// This test pins the inclusive boundary: at exactly `created_at + ttl`
+    /// the operation is accepted and the session state is still `Active`.
+    #[test]
+    fn test_session_state_is_active_at_exact_expiry_boundary() {
+        let env = Env::default();
+        let (client, admin, _user, session_id) = setup(&env);
+        let pk = public_key(&env);
+        let expiry = CREATED_AT + DEFAULT_SESSION_TTL;
+
+        // Jump straight to the computed expiry time.
+        set_ledger(&env, expiry);
+
+        let attestor = Address::generate(&env);
+        assert!(
+            client.try_register_attestor_with_session(&admin, &session_id, &attestor, &pk).is_ok(),
+            "an operation at exactly created_at + ttl must be accepted",
+        );
+        assert_eq!(
+            client.get_session_state(&session_id),
+            SessionState::Active as u32,
+            "session must remain Active at exactly created_at + ttl",
+        );
+        assert_eq!(client.get_session_operation_count(&session_id), 1);
+        assert!(client.is_attestor(&attestor));
+    }
+
+    /// Expiry policy: a session is usable while `now <= created_at + ttl` and
+    /// rejected with `SessionExpired` once `now > created_at + ttl`.
     #[test]
     fn test_session_usable_at_exact_expiry_and_expired_one_second_after() {
         let env = Env::default();
