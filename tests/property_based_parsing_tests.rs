@@ -340,6 +340,67 @@ fn prop_sep38_quote_price_representation() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Property: Asset-Code Normalization
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Strategy for asset codes constrained to valid characters: optional ASCII
+/// whitespace padding around 1..=12 alphanumeric characters.
+fn valid_asset_code_with_padding() -> impl Strategy<Value = String> {
+    (
+        "[ \t]{0,3}",
+        "[A-Za-z0-9]{1,12}",
+        "[ \t]{0,3}",
+    )
+        .prop_map(|(lead, core, trail)| format!("{lead}{core}{trail}"))
+}
+
+#[test]
+fn prop_asset_code_normalization_is_idempotent_and_uppercases() {
+    use anchorkit::asset_code_normalization::normalize_asset_code;
+
+    let config = ProptestConfig::with_cases(64);
+    proptest!(config, |(code in valid_asset_code_with_padding())| {
+        let normalized = normalize_asset_code(&code);
+
+        // Property: normalization is idempotent.
+        let twice = normalize_asset_code(&normalized);
+        prop_assert_eq!(&twice, &normalized);
+
+        // Property: documented casing behavior — trimmed input, uppercased.
+        let expected = code.trim().to_ascii_uppercase();
+        prop_assert_eq!(&normalized, &expected);
+
+        // Property: output consists only of ASCII uppercase letters/digits.
+        prop_assert!(
+            normalized
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()),
+            "normalized output {:?} contains unexpected characters",
+            normalized
+        );
+    });
+}
+
+#[test]
+fn asset_code_normalization_documented_examples() {
+    use anchorkit::asset_code_normalization::normalize_asset_code;
+
+    let cases = [
+        ("usdc", "USDC"),
+        (" Xlm ", "XLM"),
+        ("abc123XYZ789", "ABC123XYZ789"),
+    ];
+
+    for (input, expected) in cases {
+        assert_eq!(
+            normalize_asset_code(input),
+            expected,
+            "normalize_asset_code({input:?})"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Property: Error Response Handling
 // ─────────────────────────────────────────────────────────────────────────
 

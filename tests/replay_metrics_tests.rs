@@ -263,6 +263,57 @@ mod replay_metrics_tests {
         assert_eq!(m.skipped_events, u64::MAX, "skipped_events must saturate, not wrap to 0");
     }
 
+    // -----------------------------------------------------------------------
+    // Reset path clears all replay counters
+    // -----------------------------------------------------------------------
+
+    /// The reset path must clear every counter on the metrics record so that
+    /// monitoring consumers do not read stale counts after a reset.
+    #[test]
+    fn test_replay_metrics_reset_clears_all_counters() {
+        use anchorkit::replay_detection::{
+            get_replay_metrics, record_accepted_event, record_replay_detection,
+            record_skipped_event, reset_replay_metrics,
+        };
+
+        let env = make_env();
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        // Populate every counter on a single store instance.
+        let request_id = payload(&env, 0x5D);
+        let actor = Address::generate(&env);
+        env.as_contract(&contract_id, || {
+            record_accepted_event(&env);
+            record_skipped_event(&env);
+            record_replay_detection(&env, &request_id, &actor);
+        });
+
+        let before = env.as_contract(&contract_id, || get_replay_metrics(&env));
+        assert!(before.accepted_events > 0, "accepted_events must be recorded before reset");
+        assert!(before.skipped_events > 0, "skipped_events must be recorded before reset");
+        assert!(before.total_replay_attempts > 0, "total_replay_attempts must be recorded before reset");
+        assert!(before.unique_replayed_ids > 0, "unique_replayed_ids must be recorded before reset");
+
+        // Invoke the existing reset path.
+        env.as_contract(&contract_id, || reset_replay_metrics(&env));
+
+        let after = env.as_contract(&contract_id, || get_replay_metrics(&env));
+        assert_eq!(after.accepted_events, 0, "reset must clear accepted_events");
+        assert_eq!(after.skipped_events, 0, "reset must clear skipped_events");
+        assert_eq!(after.total_replay_attempts, 0, "reset must clear total_replay_attempts");
+        assert_eq!(after.unique_replayed_ids, 0, "reset must clear unique_replayed_ids");
+
+        // The public view must observe the same cleared state.
+        let public_view = client.get_replay_metrics();
+        assert_eq!(public_view.accepted_events, 0);
+        assert_eq!(public_view.skipped_events, 0);
+        assert_eq!(public_view.total_replay_attempts, 0);
+        assert_eq!(public_view.unique_replayed_ids, 0);
+    }
+
     /// Saturation must not disturb ordinary increments or replay decisions.
     #[test]
     fn test_replay_metrics_normal_increments_unchanged() {
