@@ -304,7 +304,14 @@ impl NonceTracker for MemoryNonceTracker {
 pub struct WebhookDeliveryConfig {
     /// Target URL for the HTTP POST.
     pub endpoint_url: String,
-    /// Per-attempt timeout in milliseconds (informational; enforced by `http_post`).
+    /// Per-attempt HTTP timeout in milliseconds.
+    ///
+    /// The proxy-aware `reqwest` delivery helpers enforce this as a whole
+    /// request budget. `0` is interpreted by those helpers as unset and uses
+    /// their 30-second webhook default. `deliver_webhook` itself is
+    /// transport-neutral and cannot enforce wall-clock limits; injectable
+    /// transports decide their own timeout behavior. A timeout is a transport
+    /// failure, not an HTTP status or an anchor rejection.
     pub timeout_ms: u64,
     /// Backoff parameters: max attempts, base delay, multiplier, cap.
     pub retry_config: RetryConfig,

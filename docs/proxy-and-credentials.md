@@ -133,3 +133,9 @@ returns its error, so invalid input never becomes a request header.
   messages and logs. The dedicated credentials field is never echoed.
 - **Header-injection guard** — control characters (CR/LF) are rejected in
   every credential value at validation time.
+
+## Transport, HTTP status, and retry classification
+
+For the representative transport strings and HTTP status codes covered by the
+classifiers, and to distinguish classification from an application's retry
+policy, see [Transport versus HTTP Retry Classification](./transport-http-retry-classification.md).

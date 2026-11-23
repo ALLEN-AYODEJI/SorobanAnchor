@@ -7,15 +7,26 @@
 //! - [`AlertRoute`] — destination channel (webhook URL, email address, etc.).
 //! - [`AlertRule`] — maps a `(severity, scope)` pair to one or more routes.
 //! - [`AlertRouter`] — evaluates a set of rules and returns the matching routes
-//!   for a given alert, falling back to a default catch-all route if no rule
-//!   matches.
+//!   for a given alert.  If no rule matches, configured default routes are
+//!   returned; if none are configured, the result is empty.
 //!
 //! # Design
 //!
 //! The router is intentionally `no_std`-compatible and dependency-free.
 //! Routes are plain strings; the host process is responsible for actually
 //! delivering the alert to the channel (webhook POST, SMTP, PagerDuty API,
-//! etc.).  Only the routing decision is made here.
+//! etc.).  Only the routing decision is made here: a non-empty route result
+//! proves only that one or more destinations were selected.  It does not
+//! prove that delivery succeeded.  Conversely, an empty result means this
+//! router found no configured destination; it does not represent a delivery
+//! attempt or delivery failure.  Callers can detect the distinction with
+//! [`AlertRouter::has_route`] and must report routing misses themselves.
+//!
+//! Configuration built through [`AlertRouterConfig::from_monitoring_config`]
+//! creates exact severity rules and exact, optional-condition scope rules.
+//! Every non-empty recipient is converted to a webhook route.  Monitoring
+//! configuration supplies no default routes, so a severity/condition pair
+//! with no matching rule and no manually supplied fallback returns no routes.
 //!
 //! # Example
 //!
@@ -251,9 +262,11 @@ impl AlertRouter {
     /// optional scope.
     ///
     /// If no rule matches, the configured `default_routes` are returned.
-    /// If `default_routes` is also empty, an empty `Vec` is returned (the
-    /// alert is silently dropped from the routing perspective — the caller
-    /// should log a warning).
+    /// If `default_routes` is also empty, an empty `Vec` is returned.  This
+    /// library does not perform delivery and does not emit a routing warning;
+    /// callers should check [`AlertRouter::has_route`] and report or escalate
+    /// the miss.  Reaching this method with a non-empty result is not evidence
+    /// that a host process delivered the alert.
     pub fn route(&self, severity: AlertSeverity, scope: Option<&str>) -> Vec<AlertRoute> {
         let mut matched: Vec<AlertRoute> = self
             .config

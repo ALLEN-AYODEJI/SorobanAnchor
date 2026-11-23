@@ -270,6 +270,8 @@ pub use http_client::{build_client, build_client_with_policy, fetch_stellar_toml
 #[cfg(not(feature = "wasm"))]
 pub use http_client::{ConnectionPolicy, TransportErrorKind, classify_transport_error, is_transport_error_retryable};
 #[cfg(not(feature = "wasm"))]
+pub use http_client::{HttpStatusClass, classify_http_status_code, is_http_status_retryable};
+#[cfg(not(feature = "wasm"))]
 pub use http_client::{OutboundRequestOptions, post_with_options, verify_outbound_signature};
 #[cfg(not(feature = "wasm"))]
 pub use response_validator::{
