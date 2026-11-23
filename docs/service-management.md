@@ -143,6 +143,48 @@ if error_occurred {
 }
 ```
 
+## Lifecycle Outcomes
+
+The lifecycle operations above return a small set of outcomes. The table below
+maps each public outcome to the state it leaves behind and to how an operator
+should read it. Only outcomes exercised by the existing tests are listed.
+
+| Operation | Outcome | Resulting state | Operator interpretation |
+|-----------|---------|-----------------|-------------------------|
+| `enable_service` | `Ok(true)` | Service moved into `enabled_services` | Transition applied |
+| `enable_service` | `Ok(false)` | `ServiceToggleState` unchanged | No-op: service already enabled |
+| `enable_service` | `Err(ServiceInMaintenance)` | `ServiceToggleState` unchanged | Rejected transition: maintenance window is active |
+| `disable_service` | `Ok(true)` | Service moved into `disabled_services` | Transition applied |
+| `disable_service` | `Ok(false)` | `ServiceToggleState` unchanged | No-op: service already disabled |
+| `disable_service` | `Err(...)` (dependent check) | Service remains enabled | Rejected transition: active dependents would be orphaned |
+| `enable_all_services` / `disable_all_services` | per-service outcomes | Each service toggled individually | Mixed results possible; inspect `get_service_state` |
+| `create_snapshot` | `ServiceConfigSnapshot` | New snapshot recorded | Snapshot available for rollback |
+| `rollback_to_snapshot` | `true` | `ServiceToggleState` restored from snapshot | Rollback applied |
+| `rollback_to_snapshot` | `false` | `ServiceToggleState` unchanged | Rejected rollback: snapshot invalid or incomplete |
+| `is_service_enabled` | `false` | Service absent from `enabled_services` | Unavailable service (not a rejection) |
+
+### Rejected Transition vs. Unavailable Service
+
+These two conditions are distinct and must not be conflated:
+
+- **Rejected transition** — the requested change was refused and nothing was
+  mutated. Examples: `enable_service` returning `Err(ServiceInMaintenance)`
+  while a maintenance window is active, `disable_service` failing the
+  dependent check, or `rollback_to_snapshot` returning `false` because the
+  snapshot is invalid or missing a prerequisite. The prior state is preserved.
+- **Unavailable service** — the service is simply not currently enabled, as
+  reported by `is_service_enabled` returning `false` or by the service
+  appearing in `disabled_services`. No operation was attempted or rejected;
+  the service is in its normal disabled state.
+
+### Rollback Outcomes
+
+`rollback_to_snapshot` returns a `bool`. A `true` result means the
+`ServiceToggleState` was restored from the snapshot. A `false` result means the
+rollback was rejected before any mutation: the snapshot is invalid or
+incomplete (for example, a prerequisite service is missing). In both cases the
+current `ServiceToggleState` can be inspected with `get_service_state`.
+
 ## Data Structures
 
 ### ServiceToggleState
