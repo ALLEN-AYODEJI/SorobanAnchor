@@ -74,6 +74,20 @@ cargo audit
    ./scripts/package_release.sh
    ```
 
+   **Optional tooling:** The packaging script uses `wasm-opt` from binaryen to optimize the WASM artifact. If `wasm-opt` is not found on the system PATH, the script prints a warning and continues with the unoptimized WASM artifact. The release bundle is still produced and all required files are present — the only difference is WASM file size. To install binaryen:
+   
+   ```bash
+   # Debian/Ubuntu
+   sudo apt-get install -y binaryen
+   
+   # macOS
+   brew install binaryen
+   
+   # Or build from source: https://github.com/WebAssembly/binaryen
+   ```
+   
+   The script reports both the raw and optimized WASM sizes when `wasm-opt` is available. If absent, only the raw size is shown. All release artifact checksums and validations still pass without `wasm-opt`.
+
 3. Sign and verify artifacts:
    ```bash
    ./scripts/sign_release.sh
