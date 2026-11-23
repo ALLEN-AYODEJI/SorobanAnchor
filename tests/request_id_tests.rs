@@ -521,4 +521,92 @@ mod request_id_tests {
         assert!(!ErrorCode::InvalidRequestContext.default_message().is_empty());
         assert!(!ErrorCode::InvalidSessionMetadata.default_message().is_empty());
     }
+
+    // -----------------------------------------------------------------------
+    // #1471 — Request-history retention limit boundaries
+    //
+    // Documented policy (src/request_record.rs): the request history keeps at
+    // most `MAX_REQUEST_HISTORY` records; once the limit is exceeded the oldest
+    // entry is evicted so the newest `MAX_REQUEST_HISTORY` records are retained.
+    // -----------------------------------------------------------------------
+
+    use anchorkit::request_record::{RequestRecord, RequestRecordStore, MAX_REQUEST_HISTORY};
+
+    fn make_record(env: &Env, id_byte: u8, timestamp: u64) -> RequestRecord {
+        let mut id = Bytes::new(env);
+        for _ in 0..16 {
+            id.push_back(id_byte);
+        }
+        RequestRecord {
+            id,
+            operation: String::from_str(env, "submit_attestation"),
+            actor: Address::generate(env),
+            timestamp,
+            success: true,
+        }
+    }
+
+    #[test]
+    fn test_request_history_exactly_at_limit_retains_all() {
+        let env = make_env();
+        let mut store = RequestRecordStore::new(&env);
+
+        // Push exactly MAX_REQUEST_HISTORY records with fixed, increasing timestamps.
+        for i in 0..MAX_REQUEST_HISTORY {
+            store.push(make_record(&env, i as u8, 1000 + i as u64));
+        }
+
+        let history = store.get_all();
+        assert_eq!(
+            history.len(),
+            MAX_REQUEST_HISTORY,
+            "exactly-at-limit history must retain every record"
+        );
+
+        // Oldest entry (id byte 0) is still present and is first.
+        assert_eq!(history.get(0).unwrap().id, make_record(&env, 0, 1000).id);
+        // Newest entry (last pushed) is present and is last.
+        assert_eq!(
+            history.get(MAX_REQUEST_HISTORY - 1).unwrap().id,
+            make_record(&env, (MAX_REQUEST_HISTORY - 1) as u8, 1000 + (MAX_REQUEST_HISTORY - 1) as u64).id
+        );
+    }
+
+    #[test]
+    fn test_request_history_one_over_limit_drops_oldest() {
+        let env = make_env();
+        let mut store = RequestRecordStore::new(&env);
+
+        // Push one more than the limit.
+        for i in 0..=MAX_REQUEST_HISTORY {
+            store.push(make_record(&env, i as u8, 1000 + i as u64));
+        }
+
+        let history = store.get_all();
+        assert_eq!(
+            history.len(),
+            MAX_REQUEST_HISTORY,
+            "one-over-limit history must be capped at MAX_REQUEST_HISTORY"
+        );
+
+        // The oldest entry (id byte 0) must have been evicted.
+        let oldest_id = make_record(&env, 0, 1000).id;
+        for i in 0..history.len() {
+            assert_ne!(
+                history.get(i).unwrap().id,
+                oldest_id,
+                "oldest entry must be evicted once the limit is exceeded"
+            );
+        }
+
+        // The retained window is exactly ids 1..=MAX_REQUEST_HISTORY, in order.
+        for i in 0..MAX_REQUEST_HISTORY {
+            let expected = make_record(&env, (i + 1) as u8, 1000 + (i + 1) as u64).id;
+            assert_eq!(
+                history.get(i).unwrap().id,
+                expected,
+                "retained history[{}] must be the (i+1)-th pushed record", i
+            );
+        }
+    }
 }

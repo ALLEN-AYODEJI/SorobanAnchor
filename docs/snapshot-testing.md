@@ -96,6 +96,35 @@ example, `tests/transaction_state_tracker_tests.rs` loads files from
 `test_snapshots/transaction_state_tracker_tests/`. Change these only by hand,
 with the same review described above.
 
+## Determinism review for representative fixtures
+
+Snapshot output must not contain host-dependent values such as unstable map
+ordering or local file paths, unless the test explicitly expects them. The
+following fixtures have been reviewed as a representative set:
+
+- `test_snapshots/harness_e2e_full_workflow.1.json`
+- `test_snapshots/test_register_attestor_success.1.json`
+- `test_snapshots/test_health_status_healthy_after_init_with_rl_config.1.json`
+
+To repeat the check, run each selected test twice in the same environment and
+diff the snapshot files between runs:
+
+```bash
+cargo test --test harness_e2e_full_workflow -- --nocapture
+cargo test --test test_register_attestor_success -- --nocapture
+cargo test --test test_health_status_healthy_after_init_with_rl_config -- --nocapture
+git diff -- test_snapshots/
+```
+
+The second run should produce no diff. These fixtures use deterministic
+generated addresses and nonces and deterministic ledger values, so repeated
+runs in the same environment yield identical snapshots.
+
+If a field is found to be unstable, normalize only that single field (for
+example, by masking a host-specific path) and keep the normalization narrowly
+scoped. Do not remove expected business fields from the snapshot to make it
+pass, and do not mask the entire snapshot.
+
 ## Related documentation
 
 - [`docs/ONBOARDING.md`](ONBOARDING.md#test-layers) — where snapshot tests fit
